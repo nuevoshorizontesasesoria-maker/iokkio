@@ -104,7 +104,7 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
       }
     }
 
-    // Validar que el Comensal 1 seleccionó comida
+    // Validar que el Comensal 1 (Responsable) seleccionó comida
     const organizador = comensales[0];
     if (!organizador.bebidaSeleccionada || !organizador.entradaSeleccionada) {
       alert('Por favor, selecciona una bebida y una entrada.');
@@ -112,10 +112,14 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
     }
 
     try {
-      // 1. Cambiar estado de la reserva
+      // 1. Cambiar estado de la reserva y asegurar guardar el nombre/teléfono del responsable
       const { error: updateError } = await supabase
         .from('reservations')
-        .update({ status: 'confirmed' })
+        .update({ 
+          status: 'confirmed',
+          organizer_name: organizador.nombre.trim(),
+          organizer_phone: organizador.telefono.trim()
+        })
         .eq('id', id);
 
       if (updateError) throw updateError;
@@ -134,31 +138,44 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
 
       if (guestsError) throw guestsError;
 
-      // 3. Guardar menú del organizador en preorders
+      // 3. Guardar menú del organizador/responsable en preorders
       const { error: preorderError } = await supabase
         .from('preorders')
         .insert([
           {
             reservation_id: id,
             menu_item_id: organizador.bebidaSeleccionada,
-            guest_name: organizador.nombre.trim() || 'Invitado',
+            guest_name: organizador.nombre.trim() || 'Responsable',
+            guest_phone: organizador.telefono.trim(),
             quantity: 1
           },
           {
             reservation_id: id,
             menu_item_id: organizador.entradaSeleccionada,
-            guest_name: organizador.nombre.trim() || 'Invitado',
+            guest_name: organizador.nombre.trim() || 'Responsable',
+            guest_phone: organizador.telefono.trim(),
             quantity: 1
           }
         ]);
 
       if (preorderError) throw preorderError;
 
-      // 4. 🚀 DISPARAR ENVÍO DE WHATSAPP A ACOMPAÑANTES
+      // 4. Disparar envío de WhatsApp a los acompañantes
       await fetch('/api/enviar-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reservation_id: id }),
+      });
+
+      // 5. Notificar al restaurante con el nombre del responsable y horario de la reserva
+      await fetch('/api/notificar-restaurante', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          reservation_id: id,
+          guest_name: organizador.nombre.trim(),
+          guest_phone: organizador.telefono.trim()
+        }),
       });
 
       setEstado('exito');
@@ -185,7 +202,7 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
       <main style={{ maxWidth: '450px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
         <h2 style={{ color: '#2e7d32', marginBottom: '1rem' }}>¡Todo Listo!</h2>
         <p style={{ color: '#444', lineHeight: '1.6' }}>
-          Hemos confirmado tu asistencia, <strong>{comensales[0]?.nombre}</strong>, y guardado tus elecciones de menú. ¡Te esperamos en <strong>{reserva?.restaurants?.name}</strong>!
+          Hemos confirmado tu asistencia, <strong>{comensales[0]?.nombre}</strong> (Responsable), y guardado tus elecciones de menú para la reserva a las <strong>{reserva?.reservation_time || ''}</strong> en <strong>{reserva?.restaurants?.name}</strong>.
         </p>
       </main>
     );
@@ -194,9 +211,17 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
   return (
     <main style={{ maxWidth: '550px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <h2 style={{ marginBottom: '0.5rem', textAlign: 'center' }}>Confirma tu Asistencia</h2>
-      <p style={{ color: '#555', textAlign: 'center', marginBottom: '2rem', fontSize: '1.05rem' }}>
+      <p style={{ color: '#555', textAlign: 'center', marginBottom: '1.5rem', fontSize: '1.05rem' }}>
         Reserva en <strong>{reserva?.restaurants?.name}</strong> para <strong>{comensales.length} {comensales.length === 1 ? 'persona' : 'personas'}</strong>.
       </p>
+
+      {/* Tarjeta Informativa de Horario y Responsable */}
+      <div style={{ backgroundColor: '#f5f5f5', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', borderLeft: '4px solid #2e7d32', fontSize: '0.95rem' }}>
+        <div>⏰ <strong>Horario de Reserva:</strong> {reserva?.reservation_date || ''} a las {reserva?.reservation_time || 'Por definir'}</div>
+        {reserva?.organizer_name && (
+          <div style={{ marginTop: '0.4rem' }}>👤 <strong>Responsable de Reserva:</strong> {reserva.organizer_name}</div>
+        )}
+      </div>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {comensales.map((comensal, index) => (
@@ -213,7 +238,7 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
             }}
           >
             <h3 style={{ margin: 0, color: '#2e7d32', fontSize: '1rem' }}>
-              {index === 0 ? 'Tus Datos y Tu Selección de Menú' : `Acompañante ${index + 1}`}
+              {index === 0 ? 'Tus Datos (Responsable) y Selección de Menú' : `Acompañante ${index + 1}`}
             </h3>
 
             {/* Nombre y WhatsApp */}
@@ -247,7 +272,7 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
               </div>
             </div>
 
-            {/* Opciones de Comida ÚNICAMENTE para el Comensal 1 (Organizador) */}
+            {/* Opciones de Comida ÚNICAMENTE para el Comensal 1 (Responsable/Organizador) */}
             {index === 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem', borderTop: '1px dashed #ccc', paddingTop: '1rem' }}>
                 <div>
