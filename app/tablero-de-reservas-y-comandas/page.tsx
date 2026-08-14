@@ -15,7 +15,6 @@ interface PreorderItem {
 interface ReservaDetalle {
   id: string;
   restaurant_id: string;
-  branch_id?: string;
   reservation_date: string;
   reservation_time: string;
   organizer_name: string;
@@ -25,61 +24,50 @@ interface ReservaDetalle {
   preorders: PreorderItem[];
 }
 
-interface Restaurante {
+interface SucursalRestaurante {
   id: string;
   name: string;
-}
-
-interface Sucursal {
-  id: string;
-  restaurant_id: string;
-  name: string;
+  city?: string;
 }
 
 export default function TableroReservasComandasPage() {
-  const [restaurantes, setRestaurantes] = useState<Restaurante[]>([]);
-  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
-  
-  // Selección de Control de Acceso por Negocio y Sucursal
-  const [restaurantId, setRestaurantId] = useState<string>('');
-  const [branchId, setBranchId] = useState<string>('');
-
+  const [sucursales, setSucursales] = useState<SucursalRestaurante[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [reservas, setReservas] = useState<ReservaDetalle[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
 
-  // 1. Cargar lista de negocios y sucursales
+  // 1. Cargar las distintas sucursales registradas en la tabla restaurants
   useEffect(() => {
-    async function obtenerNegocios() {
+    async function obtenerSucursales() {
       try {
-        const { data: restData } = await supabase.from('restaurants').select('id, name');
-        if (restData && restData.length > 0) {
-          setRestaurantes(restData);
-          setRestaurantId(restData[0].id); // Selecciona el primero automáticamente
-        }
+        const { data, error } = await supabase
+          .from('restaurants')
+          .select('id, name, city');
 
-        const { data: branchData } = await supabase.from('branches').select('id, restaurant_id, name');
-        if (branchData) {
-          setSucursales(branchData);
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          setSucursales(data);
+          setSelectedBranchId(data[0].id); // Selecciona la primera sucursal automáticamente
         }
       } catch (err) {
-        console.error('Error cargando los negocios:', err);
+        console.error('Error al cargar sucursales:', err);
       }
     }
-    obtenerNegocios();
+    obtenerSucursales();
   }, []);
 
-  // 2. Cargar reservas filtradas estrictamente por negocio y sucursal
-  const cargarReservasFiltradas = async () => {
-    if (!restaurantId) return;
+  // 2. Cargar reservas de la sucursal seleccionada
+  const cargarReservasPorSucursal = async () => {
+    if (!selectedBranchId) return;
     setCargando(true);
 
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from('reservations')
         .select(`
           id,
           restaurant_id,
-          branch_id,
           reservation_date,
           reservation_time,
           organizer_name,
@@ -95,50 +83,45 @@ export default function TableroReservasComandasPage() {
             )
           )
         `)
-        .eq('restaurant_id', restaurantId)
+        .eq('restaurant_id', selectedBranchId)
         .order('reservation_time', { ascending: true });
 
-      if (branchId) {
-        query = query.eq('branch_id', branchId);
-      }
-
-      const { data, error } = await query;
       if (error) throw error;
 
       setReservas((data as unknown as ReservaDetalle[]) || []);
     } catch (err: any) {
-      console.error('Error cargando reservas:', err.message);
+      console.error('Error cargando reservas de la sucursal:', err.message);
     } finally {
       setCargando(false);
     }
   };
 
-  // 3. Suscripción en tiempo real por canal aislado
+  // 3. Escuchar actualizaciones en tiempo real (Realtime)
   useEffect(() => {
-    cargarReservasFiltradas();
+    cargarReservasPorSucursal();
 
-    if (!restaurantId) return;
+    if (!selectedBranchId) return;
 
     const canalLive = supabase
-      .channel(`live-${restaurantId}-${branchId || 'todas'}`)
+      .channel(`live-sucursal-${selectedBranchId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'preorders' },
-        () => cargarReservasFiltradas()
+        () => cargarReservasPorSucursal()
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'reservations' },
-        () => cargarReservasFiltradas()
+        () => cargarReservasPorSucursal()
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(canalLive);
     };
-  }, [restaurantId, branchId]);
+  }, [selectedBranchId]);
 
-  // Función para agrupar platillos por comensal
+  // Función para agrupar pedidos por nombre de comensal
   const agruparPedidosPorComensal = (preorders: PreorderItem[]) => {
     const comensalesMap: { [key: string]: string[] } = {};
 
@@ -151,62 +134,37 @@ export default function TableroReservasComandasPage() {
     return comensalesMap;
   };
 
-  const sucursalesFiltradas = sucursales.filter((s) => s.restaurant_id === restaurantId);
-
   return (
     <main style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto', fontFamily: 'sans-serif', backgroundColor: '#f4f6f8', minHeight: '100vh' }}>
       
-      {/* Selector de Acceso (Restaurante y Sucursal) */}
+      {/* Encabezado y Selector de Sucursal */}
       <section style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '10px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', marginBottom: '2rem' }}>
-        <h2 style={{ margin: '0 0 1rem 0', fontSize: '1.2rem', color: '#2d3748' }}>📋 Tablero de Reservas y Comandas — Filtro por Local</h2>
+        <h1 style={{ margin: '0 0 1rem 0', fontSize: '1.5rem', color: '#1a202c' }}>📋 Tablero de Reservas y Comandas</h1>
         
-        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-          {/* Selector de Restaurante */}
-          <div style={{ flex: '1', minWidth: '250px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem', color: '#4a5568', fontSize: '0.9rem' }}>
-              Negocio / Restaurante:
-            </label>
-            <select
-              value={restaurantId}
-              onChange={(e) => {
-                setRestaurantId(e.target.value);
-                setBranchId('');
-              }}
-              style={{ width: '100%', padding: '0.65rem', borderRadius: '6px', border: '1px solid #cbd5e0', fontSize: '0.95rem' }}
-            >
-              <option value="">-- Seleccionar Negocio --</option>
-              {restaurantes.map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Selector de Sucursal */}
-          <div style={{ flex: '1', minWidth: '250px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem', color: '#4a5568', fontSize: '0.9rem' }}>
-              Sucursal:
-            </label>
-            <select
-              value={branchId}
-              onChange={(e) => setBranchId(e.target.value)}
-              disabled={!restaurantId || sucursalesFiltradas.length === 0}
-              style={{ width: '100%', padding: '0.65rem', borderRadius: '6px', border: '1px solid #cbd5e0', fontSize: '0.95rem', backgroundColor: sucursalesFiltradas.length === 0 ? '#edf2f7' : '#fff' }}
-            >
-              <option value="">{sucursalesFiltradas.length === 0 ? 'Todas / Sin sucursales' : 'Todas las sucursales'}</option>
-              {sucursalesFiltradas.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          </div>
+        <div style={{ maxWidth: '450px' }}>
+          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.4rem', color: '#4a5568', fontSize: '0.9rem' }}>
+            📍 Seleccionar Sucursal:
+          </label>
+          <select
+            value={selectedBranchId}
+            onChange={(e) => setSelectedBranchId(e.target.value)}
+            style={{ width: '100%', padding: '0.7rem', borderRadius: '6px', border: '1px solid #cbd5e0', fontSize: '1rem', fontWeight: 'bold', color: '#2d3748', backgroundColor: '#f7fafc' }}
+          >
+            {sucursales.map((sucursal, index) => (
+              <option key={sucursal.id} value={sucursal.id}>
+                {sucursal.name} — {sucursal.city ? sucursal.city : `Sucursal ${index + 1}`} (ID: {sucursal.id.substring(0, 5)}...)
+              </option>
+            ))}
+          </select>
         </div>
       </section>
 
-      {/* Renderizado de Mesas */}
+      {/* Renderizado de Tarjetas de Reserva */}
       {cargando ? (
-        <div style={{ textAlign: 'center', padding: '3rem', color: '#718096' }}>Cargando información del tablero...</div>
+        <div style={{ textAlign: 'center', padding: '3rem', color: '#718096' }}>Cargando comandas de la sucursal...</div>
       ) : reservas.length === 0 ? (
         <div style={{ textAlign: 'center', background: '#fff', padding: '3rem', borderRadius: '10px', color: '#718096' }}>
-          No hay reservas para la sucursal seleccionada.
+          No hay reservas ni comandas registradas para la sucursal seleccionada.
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '1.5rem' }}>
@@ -227,7 +185,7 @@ export default function TableroReservasComandasPage() {
                   flexDirection: 'column'
                 }}
               >
-                {/* Cabecera: Hora y Estado */}
+                {/* Cabecera */}
                 <div style={{ backgroundColor: '#2d3748', color: '#fff', padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>
                     ⏰ {res.reservation_time || 'Sin hora'} hs
@@ -237,20 +195,20 @@ export default function TableroReservasComandasPage() {
                   </span>
                 </div>
 
-                {/* Responsable de Reserva */}
+                {/* Responsable */}
                 <div style={{ padding: '1.25rem', borderBottom: '1px solid #edf2f7', backgroundColor: '#f7fafc' }}>
-                  <div style={{ fontSize: '0.85rem', color: '#718096', fontWeight: 'bold', textTransform: 'uppercase' }}>Responsable de Mesa</div>
+                  <div style={{ fontSize: '0.85rem', color: '#718096', fontWeight: 'bold', textTransform: 'uppercase' }}>Responsable Mesa</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#2d3748' }}>👤 {res.organizer_name}</div>
                   <div style={{ fontSize: '0.9rem', color: '#4a5568' }}>📱 WhatsApp: {res.organizer_phone}</div>
-                  <div style={{ fontSize: '0.85rem', color: '#718096', marginTop: '0.2rem' }}>👥 Capacidad Mesa: {res.guest_count} personas</div>
+                  <div style={{ fontSize: '0.85rem', color: '#718096', marginTop: '0.2rem' }}>👥 Personas: {res.guest_count}</div>
                 </div>
 
-                {/* Comandas Desglosadas por Comensal */}
+                {/* Comandas desglosadas por Comensal */}
                 <div style={{ padding: '1.25rem', flex: 1 }}>
-                  <div style={{ fontSize: '0.85rem', color: '#718096', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '0.8rem' }}>Comandas</div>
+                  <div style={{ fontSize: '0.85rem', color: '#718096', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '0.8rem' }}>Comandas por Comensal</div>
 
                   {nombresComensales.length === 0 ? (
-                    <p style={{ fontStyle: 'italic', color: '#a0aec0', fontSize: '0.9rem' }}>Esperando selecciones de la mesa...</p>
+                    <p style={{ fontStyle: 'italic', color: '#a0aec0', fontSize: '0.9rem' }}>Esperando elecciones de los comensales...</p>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                       {nombresComensales.map((nombre, index) => {
@@ -280,7 +238,7 @@ export default function TableroReservasComandasPage() {
                   )}
                 </div>
 
-                {/* Pie con Contador */}
+                {/* Contador */}
                 <div style={{ padding: '0.75rem 1.25rem', backgroundColor: '#edf2f7', borderTop: '1px solid #e2e8f0', fontSize: '0.8rem', color: '#4a5568', textAlign: 'right', fontWeight: 'bold' }}>
                   Completados: {nombresComensales.length} de {res.guest_count} personas
                 </div>
