@@ -7,13 +7,18 @@ import { supabase } from '@/lib/supabase';
 interface ComensalContacto {
   nombre: string;
   telefono: string;
+  bebidaSeleccionada?: string;
+  entradaSeleccionada?: string;
 }
 
-function ConfirmacionContenido() {
+function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id?: string; token?: string } }) {
   const searchParams = useSearchParams();
-  const id = searchParams.get('id') || searchParams.get('token');
+
+  // Lee el ID desde URL query params
+  const id = searchParamsProps?.id || searchParamsProps?.token || searchParams?.get('id') || searchParams?.get('token');
 
   const [reserva, setReserva] = useState<any>(null);
+  const [menuItems, setMenuItems] = useState<any[]>([]);
   const [comensales, setComensales] = useState<ComensalContacto[]>([]);
   const [estado, setEstado] = useState<string>('cargando');
   const [mensajeError, setMensajeError] = useState<string>('');
@@ -21,29 +26,44 @@ function ConfirmacionContenido() {
   useEffect(() => {
     if (!id) {
       setEstado('error');
-      setMensajeError('Enlace de confirmación no válido.');
+      setMensajeError('Enlace de confirmación no válido. Asegúrate de incluir ?id= en la URL.');
       return;
     }
 
     async function cargarDatos() {
       try {
+        // 1. Cargar datos de la reserva
         const { data: resData, error: resError } = await supabase
           .from('reservations')
           .select('*, restaurants(name)')
           .eq('id', id)
           .single();
 
-        if (resError || !resData) throw new Error('No se encontró la reserva.');
+        if (resError || !resData) {
+          throw new Error(`No se encontró la reserva con ID: ${id}`);
+        }
+        
         setReserva(resData);
 
+        // 2. Cargar menú del restaurante
+        const { data: menuData, error: menuError } = await supabase
+          .from('menu_items')
+          .select('*')
+          .eq('restaurant_id', resData.restaurant_id);
+
+        if (menuError) throw new Error('Error al cargar la carta del restaurante.');
+        setMenuItems(menuData || []);
+
+        // 3. Crear estructura según guest_count
         const totalPersonas = resData.guest_count || 1;
 
-        // Generamos la lista de comensales basada en guest_count
         const comensalesIniciales: ComensalContacto[] = Array.from({ length: totalPersonas }, (_, index) => {
           if (index === 0) {
             return {
               nombre: resData.organizer_name || '',
               telefono: resData.organizer_phone || '',
+              bebidaSeleccionada: '',
+              entradaSeleccionada: '',
             };
           }
           return {
@@ -74,21 +94,28 @@ function ConfirmacionContenido() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validar que todos tengan nombre y número de teléfono
+    // Validar nombres y teléfonos de todos
     for (let i = 0; i < comensales.length; i++) {
       const c = comensales[i];
       if (!c.nombre.trim()) {
-        alert(`Por favor, ingresa el nombre de pila para el Comensal ${i + 1}.`);
+        alert(`Por favor, ingresa el nombre para el Comensal ${i + 1}.`);
         return;
       }
       if (!c.telefono.trim()) {
-        alert(`Por favor, ingresa el WhatsApp/Móvil de ${c.nombre || `Comensal ${i + 1}`}.`);
+        alert(`Por favor, ingresa el WhatsApp para ${c.nombre || `Comensal ${i + 1}`}.`);
         return;
       }
     }
 
+    // Validar que el Comensal 1 eligió comida
+    const organizador = comensales[0];
+    if (!organizador.bebidaSeleccionada || !organizador.entradaSeleccionada) {
+      alert('Por favor, selecciona tu bebida y entrada como organizador.');
+      return;
+    }
+
     try {
-      // 1. Confirmar estado de la reserva
+      // 1. Confirmar estado de reserva
       const { error: updateError } = await supabase
         .from('reservations')
         .update({ status: 'confirmed' })
@@ -96,7 +123,7 @@ function ConfirmacionContenido() {
 
       if (updateError) throw updateError;
 
-      // 2. Guardar o actualizar la lista de invitados para el bot/proceso externo
+      // 2. Guardar lista de invitados para el bot de WhatsApp
       const invitadosAInsertar = comensales.map((c, index) => ({
         reservation_id: id,
         name: c.nombre.trim(),
@@ -104,12 +131,35 @@ function ConfirmacionContenido() {
         is_organizer: index === 0,
       }));
 
-      // Guardamos en la tabla 'guests' (o 'reservation_guests' según tu BD)
       const { error: guestsError } = await supabase
         .from('guests')
         .insert(invitadosAInsertar);
 
       if (guestsError) throw guestsError;
+
+      // 3. Guardar el pedido del Comensal 1 (Bebida y Entrada) en 'preorders'
+      const pedidoOrganizador = [
+        {
+          reservation_id: id,
+          menu_item_id: organizador.bebidaSeleccionada,
+          guest_name: organizador.nombre.trim(),
+          guest_phone: organizador.telefono.trim(),
+          quantity: 1,
+        },
+        {
+          reservation_id: id,
+          menu_item_id: organizador.entradaSeleccionada,
+          guest_name: organizador.nombre.trim(),
+          guest_phone: organizador.telefono.trim(),
+          quantity: 1,
+        }
+      ];
+
+      const { error: preorderError } = await supabase
+        .from('preorders')
+        .insert(pedidoOrganizador);
+
+      if (preorderError) throw preorderError;
 
       setEstado('exito');
     } catch (err: any) {
@@ -118,7 +168,7 @@ function ConfirmacionContenido() {
   };
 
   if (estado === 'cargando') {
-    return <div style={{ textAlign: 'center', marginTop: '6rem', fontFamily: 'sans-serif' }}>Cargando datos de la reserva...</div>;
+    return <div style={{ textAlign: 'center', marginTop: '6rem', fontFamily: 'sans-serif' }}>Cargando reserva y menú...</div>;
   }
 
   if (estado === 'error') {
@@ -135,18 +185,17 @@ function ConfirmacionContenido() {
       <main style={{ maxWidth: '500px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
         <h2 style={{ color: '#2e7d32', marginBottom: '1rem' }}>¡Reserva Confirmada!</h2>
         <p style={{ color: '#444', lineHeight: '1.6' }}>
-          Hemos registrado los datos de los <strong>{comensales.length} asistentes</strong>. En breve les enviaremos un mensaje por WhatsApp a cada uno para que elijan sus opciones de menú.
+          Hemos guardado tu menú y registrado a los <strong>{comensales.length} asistentes</strong>. En breve les enviaremos un WhatsApp a tus acompañantes para que elijan sus opciones.
         </p>
       </main>
     );
   }
 
   return (
-    <main style={{ maxWidth: '550px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+    <main style={{ maxWidth: '600px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <h2 style={{ marginBottom: '0.5rem', textAlign: 'center' }}>Confirmar Asistencia</h2>
       <p style={{ color: '#555', textAlign: 'center', marginBottom: '2rem', fontSize: '1rem', lineHeight: '1.5' }}>
-        Reserva en <strong>{reserva?.restaurants?.name}</strong> para <strong>{comensales.length} {comensales.length === 1 ? 'persona' : 'personas'}</strong>.<br />
-        Ingresa el nombre y WhatsApp de cada comensal para enviarles su invitación individual.
+        Reserva en <strong>{reserva?.restaurants?.name}</strong> para <strong>{comensales.length} {comensales.length === 1 ? 'persona' : 'personas'}</strong>.
       </p>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -156,19 +205,19 @@ function ConfirmacionContenido() {
             style={{ 
               padding: '1.25rem', 
               borderRadius: '8px', 
-              border: '1px solid #e0e0e0', 
-              backgroundColor: '#f9f9f9',
+              border: index === 0 ? '2px solid #2e7d32' : '1px solid #e0e0e0', 
+              backgroundColor: index === 0 ? '#f0fdf4' : '#f9f9f9',
               display: 'flex',
               flexDirection: 'column',
               gap: '0.8rem'
             }}
           >
             <h3 style={{ margin: 0, color: '#2e7d32', fontSize: '1rem' }}>
-              {index === 0 ? 'Tus Datos (Organizador/a)' : `Acompañante ${index + 1}`}
+              {index === 0 ? 'Tus Datos y Menú (Organizador/a)' : `Acompañante ${index + 1}`}
             </h3>
 
+            {/* Nombre y Móvil */}
             <div style={{ display: 'flex', gap: '0.8rem', flexDirection: 'row' }}>
-              {/* Nombre de pila */}
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
                   Nombre de pila:
@@ -183,7 +232,6 @@ function ConfirmacionContenido() {
                 />
               </div>
 
-              {/* WhatsApp */}
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
                   Número de WhatsApp:
@@ -198,6 +246,49 @@ function ConfirmacionContenido() {
                 />
               </div>
             </div>
+
+            {/* Opciones de Comida ÚNICAMENTE para el Comensal 1 (Organizador) */}
+            {index === 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginTop: '0.5rem', borderTop: '1px dashed #ccc', paddingTop: '0.8rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
+                    Tu Bebida:
+                  </label>
+                  <select
+                    value={comensal.bebidaSeleccionada || ''}
+                    onChange={(e) => handleComensalChange(index, 'bebidaSeleccionada', e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem', background: '#fff', boxSizing: 'border-box' }}
+                  >
+                    <option value="">-- Selecciona una bebida --</option>
+                    {menuItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} {item.price ? `- $${item.price}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
+                    Tu Entrada:
+                  </label>
+                  <select
+                    value={comensal.entradaSeleccionada || ''}
+                    onChange={(e) => handleComensalChange(index, 'entradaSeleccionada', e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem', background: '#fff', boxSizing: 'border-box' }}
+                  >
+                    <option value="">-- Selecciona una entrada --</option>
+                    {menuItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} {item.price ? `- $${item.price}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
         ))}
 
@@ -218,17 +309,17 @@ function ConfirmacionContenido() {
             marginTop: '0.5rem'
           }}
         >
-          Confirmar Reserva
+          Confirmar Reserva y Mi Menú
         </button>
       </form>
     </main>
   );
 }
 
-export default function ConfirmarReservaPage() {
+export default function ConfirmarReservaPage({ searchParams }: { searchParams?: { id?: string; token?: string } }) {
   return (
     <Suspense fallback={<div style={{ textAlign: 'center', marginTop: '6rem', fontFamily: 'sans-serif' }}>Cargando...</div>}>
-      <ConfirmacionContenido />
+      <ConfirmacionContenido searchParamsProps={searchParams} />
     </Suspense>
   );
 }
