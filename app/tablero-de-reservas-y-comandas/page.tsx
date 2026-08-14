@@ -115,7 +115,7 @@ export default function DemoTotalmenteFuncionalPage() {
     cargarDatos();
   }, [activeTabId]);
 
-  // Funciones Interactivas de Prueba
+  // Cambiar estado en vivo
   const cambiarEstadoReserva = async (id: string, estadoActual: string) => {
     const estados = ['confirmed', 'pending', 'completed', 'cancelled'];
     const siguienteIndex = (estados.indexOf(estadoActual) + 1) % estados.length;
@@ -214,21 +214,33 @@ export default function DemoTotalmenteFuncionalPage() {
   return (
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '5rem' }}>
       
-      {/* HEADER PRINCIPAL LANDING INTERACTIVA */}
-      <header style={{ backgroundColor: '#0f172a', color: '#fff', padding: '2rem 1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+      {/* HEADER PRINCIPAL CON LOGO DE BOCAPP */}
+      <header style={{ backgroundColor: '#0f172a', color: '#fff', padding: '1.2rem 1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <span style={{ backgroundColor: '#38bdf8', color: '#0f172a', fontSize: '0.75rem', fontWeight: '800', padding: '0.25rem 0.6rem', borderRadius: '12px' }}>
-              MODO PRUEBA INTERACTIVO
-            </span>
-            <h1 style={{ fontSize: '1.8rem', fontWeight: '800', margin: '0.4rem 0 0 0' }}>
-              Gestión de Reservas & Comandas
-            </h1>
-            <p style={{ margin: '0.2rem 0 0 0', color: '#94a3b8', fontSize: '0.88rem' }}>
-              Haz clic en los botones para probar todas las funciones de la app en vivo.
-            </p>
+          
+          {/* LOGO + TITULO */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <img 
+              src="/logo.png" 
+              alt="BocAPP Logo" 
+              style={{ width: '55px', height: '55px', borderRadius: '12px', backgroundColor: '#ffffff', padding: '4px', objectFit: 'contain' }} 
+            />
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <h1 style={{ fontSize: '1.8rem', fontWeight: '800', margin: 0, color: '#ffffff' }}>
+                  Boc<span style={{ color: '#f97316' }}>APP</span>
+                </h1>
+                <span style={{ backgroundColor: '#38bdf8', color: '#0f172a', fontSize: '0.7rem', fontWeight: '800', padding: '0.2rem 0.5rem', borderRadius: '12px' }}>
+                  DEMO EN VIVO
+                </span>
+              </div>
+              <p style={{ margin: '0.2rem 0 0 0', color: '#94a3b8', fontSize: '0.88rem' }}>
+                Gestión Integral de Reservas & Comandas Multi-Sucursal
+              </p>
+            </div>
           </div>
 
+          {/* ACCIONES DEL HEADER */}
           <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
             <button
               onClick={() => setModalReservaAbierto(true)}
@@ -243,6 +255,7 @@ export default function DemoTotalmenteFuncionalPage() {
               🔄 Recargar Tablero
             </button>
           </div>
+
         </div>
       </header>
 
@@ -308,7 +321,7 @@ export default function DemoTotalmenteFuncionalPage() {
         </div>
       </div>
 
-      {/* METRICAS EN TIEMPO REAL */}
+      {/* MÉTRICAS EN TIEMPO REAL */}
       <main style={{ maxWidth: '1200px', margin: '2rem auto', padding: '0 1.5rem' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           <div style={{ backgroundColor: '#fff', padding: '1.2rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -327,7 +340,7 @@ export default function DemoTotalmenteFuncionalPage() {
           </div>
         </div>
 
-        {/* LISTADO DE TARJETAS / COMPONENTES PROBABLES */}
+        {/* LISTADO DE TARJETAS */}
         {cargando ? (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: '#64748b' }}>
             ⏳ Actualizando datos...
@@ -361,7 +374,7 @@ export default function DemoTotalmenteFuncionalPage() {
                     flexDirection: 'column'
                   }}
                 >
-                  {/* HEADER TARJETA CON ESTADO CAMBIABLE */}
+                  {/* HEADER TARJETA */}
                   <div style={{ backgroundColor: '#1e293b', color: '#fff', padding: '0.8rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '700' }}>
@@ -372,7 +385,6 @@ export default function DemoTotalmenteFuncionalPage() {
                       </div>
                     </div>
 
-                    {/* Botón interactivo para cambiar estado */}
                     <button
                       onClick={() => cambiarEstadoReserva(res.id, res.status)}
                       title="Haz clic para alternar estado"
@@ -397,7 +409,6 @@ export default function DemoTotalmenteFuncionalPage() {
                     <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Titular Mesa</div>
                     <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#0f172a' }}>👤 {res.organizer_name}</div>
 
-                    {/* BOTONES INTERACTIVOS */}
                     <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.75rem' }}>
                       <a
                         href={`https://wa.me/${res.organizer_phone?.replace(/[^0-9]/g, '')}`}
@@ -440,7 +451,7 @@ export default function DemoTotalmenteFuncionalPage() {
                     </div>
                   </div>
 
-                  {/* COMANDAS CON OPCIÓN DE AGREGAR EN VIVO */}
+                  {/* COMANDAS */}
                   <div style={{ padding: '1rem', flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                       <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>
@@ -477,7 +488,7 @@ export default function DemoTotalmenteFuncionalPage() {
                     )}
                   </div>
 
-                  {/* FOOTER DETALLES */}
+                  {/* FOOTER TARJETA */}
                   <div style={{ padding: '0.6rem 1rem', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: '0.8rem', color: '#475569', display: 'flex', justifyContent: 'space-between', fontWeight: '600' }}>
                     <span>👥 {res.guest_count} Personas</span>
                     <span style={{ color: '#2563eb' }}>ID: {res.id.substring(0, 6)}...</span>
