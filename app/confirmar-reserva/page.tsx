@@ -4,11 +4,9 @@ import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-interface ComensalData {
+interface ComensalContacto {
   nombre: string;
   telefono: string;
-  bebidaSeleccionada: string;
-  entradaSeleccionada: string;
 }
 
 function ConfirmacionContenido() {
@@ -16,8 +14,7 @@ function ConfirmacionContenido() {
   const id = searchParams.get('id') || searchParams.get('token');
 
   const [reserva, setReserva] = useState<any>(null);
-  const [menuItems, setMenuItems] = useState<any[]>([]);
-  const [comensales, setComensales] = useState<ComensalData[]>([]);
+  const [comensales, setComensales] = useState<ComensalContacto[]>([]);
   const [estado, setEstado] = useState<string>('cargando');
   const [mensajeError, setMensajeError] = useState<string>('');
 
@@ -30,7 +27,6 @@ function ConfirmacionContenido() {
 
     async function cargarDatos() {
       try {
-        // 1. BÚSQUEDA DE LA RESERVA
         const { data: resData, error: resError } = await supabase
           .from('reservations')
           .select('*, restaurants(name)')
@@ -40,39 +36,24 @@ function ConfirmacionContenido() {
         if (resError || !resData) throw new Error('No se encontró la reserva.');
         setReserva(resData);
 
-        // 2. LECTURA DEL NÚMERO DE COMENSALES (guest_count)
         const totalPersonas = resData.guest_count || 1;
 
-        // Generar lista de formularios inicializando el primero con los datos del organizador si existen
-        const comensalesIniciales: ComensalData[] = Array.from({ length: totalPersonas }, (_, index) => {
+        // Generamos la lista de comensales basada en guest_count
+        const comensalesIniciales: ComensalContacto[] = Array.from({ length: totalPersonas }, (_, index) => {
           if (index === 0) {
             return {
               nombre: resData.organizer_name || '',
               telefono: resData.organizer_phone || '',
-              bebidaSeleccionada: '',
-              entradaSeleccionada: '',
             };
           }
           return {
             nombre: '',
             telefono: '',
-            bebidaSeleccionada: '',
-            entradaSeleccionada: '',
           };
         });
 
         setComensales(comensalesIniciales);
-
-        // Cargar carta de menú del restaurante
-        const { data: menuData, error: menuError } = await supabase
-          .from('menu_items')
-          .select('*')
-          .eq('restaurant_id', resData.restaurant_id);
-
-        if (menuError) throw new Error('Error al cargar la carta del restaurante.');
-        setMenuItems(menuData || []);
-
-        setEstado('pendiente_eleccion');
+        setEstado('pendiente');
       } catch (err: any) {
         setEstado('error');
         setMensajeError(err.message);
@@ -82,8 +63,7 @@ function ConfirmacionContenido() {
     cargarDatos();
   }, [id]);
 
-  // Manejador para actualizar el estado de cada comensal individual
-  const handleComensalChange = (index: number, field: keyof ComensalData, value: string) => {
+  const handleComensalChange = (index: number, field: keyof ComensalContacto, value: string) => {
     setComensales((prev) => {
       const actualizados = [...prev];
       actualizados[index] = { ...actualizados[index], [field]: value };
@@ -94,25 +74,21 @@ function ConfirmacionContenido() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 3. VALIDACIÓN COMPLETA DE CAMPOS
+    // Validar que todos tengan nombre y número de teléfono
     for (let i = 0; i < comensales.length; i++) {
       const c = comensales[i];
       if (!c.nombre.trim()) {
-        alert(`Por favor, ingresa el nombre para el Comensal ${i + 1}.`);
+        alert(`Por favor, ingresa el nombre de pila para el Comensal ${i + 1}.`);
         return;
       }
       if (!c.telefono.trim()) {
-        alert(`Por favor, ingresa el teléfono/WhatsApp para el Comensal ${i + 1} (${c.nombre}).`);
-        return;
-      }
-      if (!c.bebidaSeleccionada || !c.entradaSeleccionada) {
-        alert(`Por favor, selecciona bebida y entrada para el Comensal ${i + 1} (${c.nombre}).`);
+        alert(`Por favor, ingresa el WhatsApp/Móvil de ${c.nombre || `Comensal ${i + 1}`}.`);
         return;
       }
     }
 
     try {
-      // 4. CONFIRMACIÓN DE LA RESERVA EN SUPABASE
+      // 1. Confirmar estado de la reserva
       const { error: updateError } = await supabase
         .from('reservations')
         .update({ status: 'confirmed' })
@@ -120,38 +96,24 @@ function ConfirmacionContenido() {
 
       if (updateError) throw updateError;
 
-      // 5. REGISTRO DE MENÚS Y DATOS DE CADA COMENSAL
-      const ordenesAInsertar: any[] = [];
+      // 2. Guardar o actualizar la lista de invitados para el bot/proceso externo
+      const invitadosAInsertar = comensales.map((c, index) => ({
+        reservation_id: id,
+        name: c.nombre.trim(),
+        phone: c.telefono.trim(),
+        is_organizer: index === 0,
+      }));
 
-      comensales.forEach((c) => {
-        // Bebida del comensal
-        ordenesAInsertar.push({
-          reservation_id: id,
-          menu_item_id: c.bebidaSeleccionada,
-          guest_name: c.nombre.trim(),
-          guest_phone: c.telefono.trim(),
-          quantity: 1,
-        });
+      // Guardamos en la tabla 'guests' (o 'reservation_guests' según tu BD)
+      const { error: guestsError } = await supabase
+        .from('guests')
+        .insert(invitadosAInsertar);
 
-        // Entrada del comensal
-        ordenesAInsertar.push({
-          reservation_id: id,
-          menu_item_id: c.entradaSeleccionada,
-          guest_name: c.nombre.trim(),
-          guest_phone: c.telefono.trim(),
-          quantity: 1,
-        });
-      });
-
-      const { error: preorderError } = await supabase
-        .from('preorders')
-        .insert(ordenesAInsertar);
-
-      if (preorderError) throw preorderError;
+      if (guestsError) throw guestsError;
 
       setEstado('exito');
     } catch (err: any) {
-      alert(`Hubo un error al procesar la solicitud: ${err.message}`);
+      alert(`Hubo un error al procesar la confirmación: ${err.message}`);
     }
   };
 
@@ -173,105 +135,68 @@ function ConfirmacionContenido() {
       <main style={{ maxWidth: '500px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
         <h2 style={{ color: '#2e7d32', marginBottom: '1rem' }}>¡Reserva Confirmada!</h2>
         <p style={{ color: '#444', lineHeight: '1.6' }}>
-          Se ha registrado la asistencia y menú de los <strong>{comensales.length} comensales</strong>. ¡Nos vemos pronto en <strong>{reserva?.restaurants?.name}</strong>!
+          Hemos registrado los datos de los <strong>{comensales.length} asistentes</strong>. En breve les enviaremos un mensaje por WhatsApp a cada uno para que elijan sus opciones de menú.
         </p>
       </main>
     );
   }
 
   return (
-    <main style={{ maxWidth: '600px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+    <main style={{ maxWidth: '550px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
       <h2 style={{ marginBottom: '0.5rem', textAlign: 'center' }}>Confirmar Asistencia</h2>
-      <p style={{ color: '#555', textAlign: 'center', marginBottom: '2rem', fontSize: '1.05rem' }}>
-        Reserva en <strong>{reserva?.restaurants?.name}</strong> para <strong>{comensales.length} {comensales.length === 1 ? 'persona' : 'personas'}</strong>. Ingresa los datos de cada comensal:
+      <p style={{ color: '#555', textAlign: 'center', marginBottom: '2rem', fontSize: '1rem', lineHeight: '1.5' }}>
+        Reserva en <strong>{reserva?.restaurants?.name}</strong> para <strong>{comensales.length} {comensales.length === 1 ? 'persona' : 'personas'}</strong>.<br />
+        Ingresa el nombre y WhatsApp de cada comensal para enviarles su invitación individual.
       </p>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
         {comensales.map((comensal, index) => (
           <div 
             key={index} 
             style={{ 
-              padding: '1.5rem', 
+              padding: '1.25rem', 
               borderRadius: '8px', 
               border: '1px solid #e0e0e0', 
               backgroundColor: '#f9f9f9',
               display: 'flex',
               flexDirection: 'column',
-              gap: '1rem'
+              gap: '0.8rem'
             }}
           >
-            <h3 style={{ margin: 0, color: '#2e7d32', fontSize: '1.1rem' }}>
-              Comensal {index + 1} {index === 0 ? '(Organizador/a)' : ''}
+            <h3 style={{ margin: 0, color: '#2e7d32', fontSize: '1rem' }}>
+              {index === 0 ? 'Tus Datos (Organizador/a)' : `Acompañante ${index + 1}`}
             </h3>
 
-            {/* Nombre */}
-            <div>
-              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.9rem' }}>
-                Nombre completo:
-              </label>
-              <input
-                type="text"
-                placeholder="Ej: María García"
-                value={comensal.nombre}
-                onChange={(e) => handleComensalChange(index, 'nombre', e.target.value)}
-                required
-                style={{ width: '100%', padding: '0.65rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.95rem', boxSizing: 'border-box' }}
-              />
-            </div>
+            <div style={{ display: 'flex', gap: '0.8rem', flexDirection: 'row' }}>
+              {/* Nombre de pila */}
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
+                  Nombre de pila:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Laura"
+                  value={comensal.nombre}
+                  onChange={(e) => handleComensalChange(index, 'nombre', e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                />
+              </div>
 
-            {/* Móvil / WhatsApp */}
-            <div>
-              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.9rem' }}>
-                Móvil / WhatsApp:
-              </label>
-              <input
-                type="tel"
-                placeholder="Ej: +34612345678"
-                value={comensal.telefono}
-                onChange={(e) => handleComensalChange(index, 'telefono', e.target.value)}
-                required
-                style={{ width: '100%', padding: '0.65rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.95rem', boxSizing: 'border-box' }}
-              />
-            </div>
-
-            {/* Elección Bebida */}
-            <div>
-              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.9rem' }}>
-                Bebida:
-              </label>
-              <select
-                value={comensal.bebidaSeleccionada}
-                onChange={(e) => handleComensalChange(index, 'bebidaSeleccionada', e.target.value)}
-                required
-                style={{ width: '100%', padding: '0.65rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.95rem', background: '#fff', boxSizing: 'border-box' }}
-              >
-                <option value="">-- Selecciona una bebida --</option>
-                {menuItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} {item.price ? `- $${item.price}` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Elección Entrada */}
-            <div>
-              <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.9rem' }}>
-                Entrada:
-              </label>
-              <select
-                value={comensal.entradaSeleccionada}
-                onChange={(e) => handleComensalChange(index, 'entradaSeleccionada', e.target.value)}
-                required
-                style={{ width: '100%', padding: '0.65rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.95rem', background: '#fff', boxSizing: 'border-box' }}
-              >
-                <option value="">-- Selecciona una entrada --</option>
-                {menuItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} {item.price ? `- $${item.price}` : ''}
-                  </option>
-                ))}
-              </select>
+              {/* WhatsApp */}
+              <div style={{ flex: 1 }}>
+                <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
+                  Número de WhatsApp:
+                </label>
+                <input
+                  type="tel"
+                  placeholder="Ej: +34612345678"
+                  value={comensal.telefono}
+                  onChange={(e) => handleComensalChange(index, 'telefono', e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                />
+              </div>
             </div>
           </div>
         ))}
@@ -284,15 +209,16 @@ function ConfirmacionContenido() {
             padding: '0.9rem',
             border: 'none',
             borderRadius: '6px',
-            fontSize: '1.05rem',
+            fontSize: '1rem',
             fontWeight: 'bold',
             cursor: 'pointer',
             transition: 'background 0.2s',
             width: '100%',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            marginTop: '0.5rem'
           }}
         >
-          Confirmar Reserva y Menús
+          Confirmar Reserva
         </button>
       </form>
     </main>
