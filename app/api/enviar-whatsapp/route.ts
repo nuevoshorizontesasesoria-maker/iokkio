@@ -1,87 +1,53 @@
-import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
+
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://darkorange-manatee-747277.hostingersite.com';
 
 export async function POST(request: Request) {
-
   try {
-
-    const supabase = getSupabaseAdmin();
-
     const { reservation_id } = await request.json();
 
     if (!reservation_id) {
-      return NextResponse.json(
-        { error: "Falta reservation_id" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Falta el reservation_id' }, { status: 400 });
     }
 
-    // Obtener reserva
+    // 1. Obtener acompañantes (excluyendo al organizador)
+    const { data: guests, error: guestsError } = await supabase
+      .from('guests')
+      .select('*')
+      .eq('reservation_id', reservation_id)
+      .eq('is_organizer', false);
 
-    const { data: reserva, error } = await supabase
-      .from("reservations")
-      .select(`
-        *,
-        restaurants(name)
-      `)
-      .eq("id", reservation_id)
+    if (guestsError) throw guestsError;
+
+    if (!guests || guests.length === 0) {
+      return NextResponse.json({ message: 'No hay acompañantes para notificar.' });
+    }
+
+    // 2. Obtener el nombre del restaurante
+    const { data: reservation } = await supabase
+      .from('reservations')
+      .select('restaurants(name)')
+      .eq('id', reservation_id)
       .single();
 
-    if (error || !reserva) {
-      return NextResponse.json(
-        { error: "Reserva no encontrada" },
-        { status: 404 }
-      );
-    }
+    const restaurantName = (reservation as any)?.restaurants?.name || 'el restaurante';
 
-    const dominio =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      "https://tu-dominio.com";
+    // 3. Generar enlace y mensaje para cada acompañante
+    const envios = guests.map(async (guest) => {
+      const inviteUrl = `${BASE_URL}/eleccion-menu?reservation_id=${reservation_id}&guest_id=${guest.id}`;
+      const mensaje = `¡Hola ${guest.name}! 👋\n\nHas sido invitado/a a una reserva en *${restaurantName}*.\nPor favor, ingresa al siguiente enlace para elegir tu bebida y entrada:\n\n👉 ${inviteUrl}`;
 
-    const enlace =
-      `${dominio}/confirmar-reserva?id=${reserva.id}`;
+      // AQUÍ se conecta tu proveedor de API de WhatsApp (Twilio, Meta, Evolution, etc.)
+      console.log(`[WhatsApp listo para ${guest.phone}]:\n${mensaje}`);
 
-    const mensaje =
-`Hola ${reserva.organizer_name} 👋
-
-Te recordamos tu reserva en ${reserva.restaurants?.name}
-
-📅 ${reserva.reservation_date}
-🕒 ${reserva.reservation_time}
-
-Confirma aquí tu asistencia:
-
-${enlace}`;
-
-    // Aquí irá Twilio o Evolution API
-
-    console.log(mensaje);
-
-    await supabase
-      .from("reservations")
-      .update({
-        status: "whatsapp_sent"
-      })
-      .eq("id", reservation_id);
-
-    return NextResponse.json({
-      success: true,
-      message: "WhatsApp preparado correctamente"
+      return { guest_id: guest.id, phone: guest.phone, status: 'sent' };
     });
 
+    const resultados = await Promise.all(envios);
+
+    return NextResponse.json({ success: true, total: resultados.length, resultados });
   } catch (error: any) {
-
-    console.error(error);
-
-    return NextResponse.json(
-      {
-        error: error.message
-      },
-      {
-        status: 500
-      }
-    );
-
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
 }

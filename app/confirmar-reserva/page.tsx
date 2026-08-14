@@ -154,6 +154,13 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
 
       if (preorderError) throw preorderError;
 
+      // 4. 🚀 DISPARAR ENVÍO DE WHATSAPP A ACOMPAÑANTES
+      await fetch('/api/enviar-whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reservation_id: id }),
+      });
+
       setEstado('exito');
     } catch (err: any) {
       alert(`Hubo un error al procesar tu selección: ${err.message}`);
