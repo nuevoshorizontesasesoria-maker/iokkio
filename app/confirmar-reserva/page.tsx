@@ -14,7 +14,7 @@ interface ComensalContacto {
 function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id?: string; token?: string } }) {
   const searchParams = useSearchParams();
 
-  // Lee el ID desde URL query params
+  // Lee el ID desde params o URL
   const id = searchParamsProps?.id || searchParamsProps?.token || searchParams?.get('id') || searchParams?.get('token');
 
   const [reserva, setReserva] = useState<any>(null);
@@ -26,35 +26,32 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
   useEffect(() => {
     if (!id) {
       setEstado('error');
-      setMensajeError('Enlace de confirmación no válido. Asegúrate de incluir ?id= en la URL.');
+      setMensajeError('Enlace de confirmación no válido.');
       return;
     }
 
     async function cargarDatos() {
       try {
-        // 1. Cargar datos de la reserva
+        // 1. Obtener datos de la reserva
         const { data: resData, error: resError } = await supabase
           .from('reservations')
           .select('*, restaurants(name)')
           .eq('id', id)
           .single();
 
-        if (resError || !resData) {
-          throw new Error(`No se encontró la reserva con ID: ${id}`);
-        }
-        
+        if (resError || !resData) throw new Error('No se encontró la reserva.');
         setReserva(resData);
 
-        // 2. Cargar menú del restaurante
+        // 2. Cargar menú desde menu_items filtrando por restaurant_id
         const { data: menuData, error: menuError } = await supabase
           .from('menu_items')
           .select('*')
           .eq('restaurant_id', resData.restaurant_id);
 
-        if (menuError) throw new Error('Error al cargar la carta del restaurante.');
+        if (menuError) throw new Error('Error al cargar la carta.');
         setMenuItems(menuData || []);
 
-        // 3. Crear estructura según guest_count
+        // 3. Crear lista de comensales según guest_count
         const totalPersonas = resData.guest_count || 1;
 
         const comensalesIniciales: ComensalContacto[] = Array.from({ length: totalPersonas }, (_, index) => {
@@ -94,7 +91,7 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validar nombres y teléfonos de todos
+    // Validar nombre y teléfono de todos
     for (let i = 0; i < comensales.length; i++) {
       const c = comensales[i];
       if (!c.nombre.trim()) {
@@ -107,15 +104,15 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
       }
     }
 
-    // Validar que el Comensal 1 eligió comida
+    // Validar que el Comensal 1 seleccionó comida
     const organizador = comensales[0];
     if (!organizador.bebidaSeleccionada || !organizador.entradaSeleccionada) {
-      alert('Por favor, selecciona tu bebida y entrada como organizador.');
+      alert('Por favor, selecciona una bebida y una entrada.');
       return;
     }
 
     try {
-      // 1. Confirmar estado de reserva
+      // 1. Cambiar estado de la reserva
       const { error: updateError } = await supabase
         .from('reservations')
         .update({ status: 'confirmed' })
@@ -123,7 +120,7 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
 
       if (updateError) throw updateError;
 
-      // 2. Guardar lista de invitados para el bot de WhatsApp
+      // 2. Guardar lista de invitados en la tabla guests
       const invitadosAInsertar = comensales.map((c, index) => ({
         reservation_id: id,
         name: c.nombre.trim(),
@@ -137,43 +134,39 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
 
       if (guestsError) throw guestsError;
 
-      // 3. Guardar el pedido del Comensal 1 (Bebida y Entrada) en 'preorders'
-      const pedidoOrganizador = [
-        {
-          reservation_id: id,
-          menu_item_id: organizador.bebidaSeleccionada,
-          guest_name: organizador.nombre.trim(),
-          guest_phone: organizador.telefono.trim(),
-          quantity: 1,
-        },
-        {
-          reservation_id: id,
-          menu_item_id: organizador.entradaSeleccionada,
-          guest_name: organizador.nombre.trim(),
-          guest_phone: organizador.telefono.trim(),
-          quantity: 1,
-        }
-      ];
-
+      // 3. Guardar menú del organizador en preorders
       const { error: preorderError } = await supabase
         .from('preorders')
-        .insert(pedidoOrganizador);
+        .insert([
+          {
+            reservation_id: id,
+            menu_item_id: organizador.bebidaSeleccionada,
+            guest_name: organizador.nombre.trim() || 'Invitado',
+            quantity: 1
+          },
+          {
+            reservation_id: id,
+            menu_item_id: organizador.entradaSeleccionada,
+            guest_name: organizador.nombre.trim() || 'Invitado',
+            quantity: 1
+          }
+        ]);
 
       if (preorderError) throw preorderError;
 
       setEstado('exito');
     } catch (err: any) {
-      alert(`Hubo un error al procesar la confirmación: ${err.message}`);
+      alert(`Hubo un error al procesar tu selección: ${err.message}`);
     }
   };
 
   if (estado === 'cargando') {
-    return <div style={{ textAlign: 'center', marginTop: '6rem', fontFamily: 'sans-serif' }}>Cargando reserva y menú...</div>;
+    return <div style={{ textAlign: 'center', marginTop: '6rem', fontFamily: 'sans-serif' }}>Cargando tu reserva y menú...</div>;
   }
 
   if (estado === 'error') {
     return (
-      <main style={{ maxWidth: '500px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+      <main style={{ maxWidth: '450px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
         <h2 style={{ color: '#d32f2f', marginBottom: '1rem' }}>Atención</h2>
         <p style={{ color: '#666' }}>{mensajeError}</p>
       </main>
@@ -182,19 +175,19 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
 
   if (estado === 'exito') {
     return (
-      <main style={{ maxWidth: '500px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-        <h2 style={{ color: '#2e7d32', marginBottom: '1rem' }}>¡Reserva Confirmada!</h2>
+      <main style={{ maxWidth: '450px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+        <h2 style={{ color: '#2e7d32', marginBottom: '1rem' }}>¡Todo Listo!</h2>
         <p style={{ color: '#444', lineHeight: '1.6' }}>
-          Hemos guardado tu menú y registrado a los <strong>{comensales.length} asistentes</strong>. En breve les enviaremos un WhatsApp a tus acompañantes para que elijan sus opciones.
+          Hemos confirmado tu asistencia, <strong>{comensales[0]?.nombre}</strong>, y guardado tus elecciones de menú. ¡Te esperamos en <strong>{reserva?.restaurants?.name}</strong>!
         </p>
       </main>
     );
   }
 
   return (
-    <main style={{ maxWidth: '600px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-      <h2 style={{ marginBottom: '0.5rem', textAlign: 'center' }}>Confirmar Asistencia</h2>
-      <p style={{ color: '#555', textAlign: 'center', marginBottom: '2rem', fontSize: '1rem', lineHeight: '1.5' }}>
+    <main style={{ maxWidth: '550px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+      <h2 style={{ marginBottom: '0.5rem', textAlign: 'center' }}>Confirma tu Asistencia</h2>
+      <p style={{ color: '#555', textAlign: 'center', marginBottom: '2rem', fontSize: '1.05rem' }}>
         Reserva en <strong>{reserva?.restaurants?.name}</strong> para <strong>{comensales.length} {comensales.length === 1 ? 'persona' : 'personas'}</strong>.
       </p>
 
@@ -213,10 +206,10 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
             }}
           >
             <h3 style={{ margin: 0, color: '#2e7d32', fontSize: '1rem' }}>
-              {index === 0 ? 'Tus Datos y Menú (Organizador/a)' : `Acompañante ${index + 1}`}
+              {index === 0 ? 'Tus Datos y Tu Selección de Menú' : `Acompañante ${index + 1}`}
             </h3>
 
-            {/* Nombre y Móvil */}
+            {/* Nombre y WhatsApp */}
             <div style={{ display: 'flex', gap: '0.8rem', flexDirection: 'row' }}>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
@@ -249,16 +242,16 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
 
             {/* Opciones de Comida ÚNICAMENTE para el Comensal 1 (Organizador) */}
             {index === 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', marginTop: '0.5rem', borderTop: '1px dashed #ccc', paddingTop: '0.8rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem', borderTop: '1px dashed #ccc', paddingTop: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
-                    Tu Bebida:
+                  <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem', color: '#333' }}>
+                    Elige tu Bebida:
                   </label>
                   <select
                     value={comensal.bebidaSeleccionada || ''}
                     onChange={(e) => handleComensalChange(index, 'bebidaSeleccionada', e.target.value)}
                     required
-                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem', background: '#fff', boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '1rem', background: '#fff', boxSizing: 'border-box' }}
                   >
                     <option value="">-- Selecciona una bebida --</option>
                     {menuItems.map((item) => (
@@ -270,14 +263,14 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.3rem', color: '#333', fontSize: '0.85rem' }}>
-                    Tu Entrada:
+                  <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '0.5rem', color: '#333' }}>
+                    Elige tu Entrada:
                   </label>
                   <select
                     value={comensal.entradaSeleccionada || ''}
                     onChange={(e) => handleComensalChange(index, 'entradaSeleccionada', e.target.value)}
                     required
-                    style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '0.9rem', background: '#fff', boxSizing: 'border-box' }}
+                    style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '1rem', background: '#fff', boxSizing: 'border-box' }}
                   >
                     <option value="">-- Selecciona una entrada --</option>
                     {menuItems.map((item) => (
@@ -297,19 +290,19 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
           style={{
             background: '#2e7d32',
             color: '#fff',
-            padding: '0.9rem',
+            padding: '0.85rem',
             border: 'none',
             borderRadius: '6px',
             fontSize: '1rem',
             fontWeight: 'bold',
             cursor: 'pointer',
+            marginTop: '1rem',
             transition: 'background 0.2s',
             width: '100%',
-            boxSizing: 'border-box',
-            marginTop: '0.5rem'
+            boxSizing: 'border-box'
           }}
         >
-          Confirmar Reserva y Mi Menú
+          Confirmar Asistencia y Menú
         </button>
       </form>
     </main>
