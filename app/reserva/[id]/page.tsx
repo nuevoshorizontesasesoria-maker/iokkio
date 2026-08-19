@@ -59,3 +59,18 @@ export default async function DetalleReservaPage({ params }: RouteParams) {
     </div>
   );
 }
+// app/reserva/[id]/page.tsx
+
+// Esta función le dice a Next.js qué páginas pre-renderizar
+export async function generateStaticParams() {
+  // Puedes retornar un array de ejemplo con IDs hipotéticos o conocidos
+  return [
+    { id: '1' },
+    { id: '2' },
+    { id: 'demo' },
+  ];
+}
+
+export default function ReservaPage({ params }: { params: { id: string } }) {
+  // Tu código actual del componente...
+}
