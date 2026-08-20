@@ -5,23 +5,32 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+// 1. Función requerida por Next.js para build estático (output: 'export')
+export async function generateStaticParams() {
+  return [
+    { id: '1' },
+    { id: '2' },
+    { id: 'demo' },
+  ];
+}
+
+// 2. Componente principal de la página (ÚNICO export default)
 export default async function DetalleReservaPage({ params }: RouteParams) {
-  // 1. Obtenemos el 'id' de la URL
+  // Obtenemos el 'id' de la URL
   const { id } = await params;
 
-  // 2. Apuntamos a 'reservations', que es la tabla real donde guarda el formulario
+  // Apuntamos a 'reservations' en Supabase
   const { data: reserva, error } = await supabase
     .from("reservations") 
     .select("*")
     .eq("id", id)
     .single();
 
-  // 3. Si no existe en Supabase, dará 404 de forma controlada
+  // Si no existe o hay error en el build/fetch, manejamos 404
   if (error || !reserva) {
     notFound();
   }
 
-  // 4. Pintamos los datos mapeando las columnas correctas
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md mt-10">
       <h1 className="text-3xl font-bold text-gray-800 mb-4">
@@ -58,19 +67,4 @@ export default async function DetalleReservaPage({ params }: RouteParams) {
       </div>
     </div>
   );
-}
-// app/reserva/[id]/page.tsx
-
-// Esta función le dice a Next.js qué páginas pre-renderizar
-export async function generateStaticParams() {
-  // Puedes retornar un array de ejemplo con IDs hipotéticos o conocidos
-  return [
-    { id: '1' },
-    { id: '2' },
-    { id: 'demo' },
-  ];
-}
-
-export default function ReservaPage({ params }: { params: { id: string } }) {
-  // Tu código actual del componente...
 }
