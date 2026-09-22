@@ -3,6 +3,15 @@ import { supabase } from '@/lib/supabase';
 
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://darkorange-manatee-747277.hostingersite.com';
 
+// Definición de tipo para evitar 'implicit any' en TypeScript
+interface Guest {
+  id: string;
+  name: string;
+  phone?: string;
+  reservation_id: string;
+  is_organizer: boolean;
+}
+
 export async function POST(request: Request) {
   try {
     const { reservation_id } = await request.json();
@@ -33,13 +42,13 @@ export async function POST(request: Request) {
 
     const restaurantName = (reservation as any)?.restaurants?.name || 'el restaurante';
 
-    // 3. Generar enlace y mensaje para cada acompañante
-    const envios = guests.map(async (guest) => {
+    // 3. Generar enlace y mensaje para cada acompañante (Guest tipado explícitamente)
+    const envios = (guests as Guest[]).map(async (guest: Guest) => {
       const inviteUrl = `${BASE_URL}/eleccion-menu?reservation_id=${reservation_id}&guest_id=${guest.id}`;
       const mensaje = `¡Hola ${guest.name}! 👋\n\nHas sido invitado/a a una reserva en *${restaurantName}*.\nPor favor, ingresa al siguiente enlace para elegir tu bebida y entrada:\n\n👉 ${inviteUrl}`;
 
       // AQUÍ se conecta tu proveedor de API de WhatsApp (Twilio, Meta, Evolution, etc.)
-      console.log(`[WhatsApp listo para ${guest.phone}]:\n${mensaje}`);
+      console.log(`[WhatsApp listo para ${guest.phone || 'sin teléfono'}]:\n${mensaje}`);
 
       return { guest_id: guest.id, phone: guest.phone, status: 'sent' };
     });
