@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
+// --- INTERFACES ---
 interface PreorderItem {
   id?: string;
   reservation_id: string;
@@ -19,7 +20,7 @@ interface ReservaDetalle {
   organizer_name: string;
   organizer_phone: string;
   guest_count: number;
-  status: string;
+  status: 'confirmed' | 'pending' | 'completed' | 'cancelled' | string;
   preorders: PreorderItem[];
 }
 
@@ -28,6 +29,8 @@ interface SucursalRestaurante {
   name: string;
   city?: string;
 }
+
+const ESTADOS_DISPONIBLES = ['confirmed', 'pending', 'completed', 'cancelled'] as const;
 
 export default function DemoTotalmenteFuncionalPage() {
   const [sucursales, setSucursales] = useState<SucursalRestaurante[]>([]);
@@ -39,17 +42,7 @@ export default function DemoTotalmenteFuncionalPage() {
   // Modales interactivos
   const [modalReservaAbierto, setModalReservaAbierto] = useState<boolean>(false);
   const [modalComandaAbierto, setModalComandaAbierto] = useState<boolean>(false);
-  
-  // Datos Modal Reserva
-  const [nuevoNombre, setNuevoNombre] = useState<string>('');
-  const [nuevoPhone, setNuevoPhone] = useState<string>('');
-  const [nuevoPax, setNuevoPax] = useState<number>(2);
-  const [nuevaSucursalId, setNuevaSucursalId] = useState<string>('');
-
-  // Datos Modal Comanda
   const [reservaSeleccionadaId, setReservaSeleccionadaId] = useState<string>('');
-  const [nuevoComensalNombre, setNuevoComensalNombre] = useState<string>('');
-  const [nuevoPlatoNombre, setNuevoPlatoNombre] = useState<string>('');
 
   // 1. Cargar Sucursales
   useEffect(() => {
@@ -63,7 +56,6 @@ export default function DemoTotalmenteFuncionalPage() {
 
         if (data && data.length > 0) {
           setSucursales(data);
-          setNuevaSucursalId(data[0].id);
         }
       } catch (err) {
         console.error('Error cargando sucursales:', err);
@@ -72,54 +64,58 @@ export default function DemoTotalmenteFuncionalPage() {
     obtenerSucursales();
   }, []);
 
-  // 2. Cargar Reservas y Comandas
-  const cargarDatos = async () => {
+  // 2. Cargar Reservas y Comandas en 1 sola query (Single Query Join)
+  const cargarDatos = useCallback(async () => {
     setCargando(true);
     try {
-      let query = supabase.from('reservations').select('*').order('reservation_date', { ascending: true });
+      let query = supabase
+        .from('reservations')
+        .select('*, preorders(*)')
+        .order('reservation_date', { ascending: true });
 
       if (activeTabId !== 'TODAS') {
         query = query.eq('restaurant_id', activeTabId);
       }
 
-      const { data: dataReservas, error: errorRes } = await query;
-      if (errorRes) throw errorRes;
+      const { data, error } = await query;
+      if (error) throw error;
 
-      if (!dataReservas || dataReservas.length === 0) {
-        setReservas([]);
-        setCargando(false);
-        return;
-      }
-
-      const resIds = dataReservas.map((r) => r.id);
-
-      const { data: dataPreorders } = await supabase
-        .from('preorders')
-        .select('*')
-        .in('reservation_id', resIds);
-
-      const reservasCompletas: ReservaDetalle[] = dataReservas.map((res) => ({
-        ...res,
-        preorders: (dataPreorders || []).filter((p) => p.reservation_id === res.id),
-      }));
-
-      setReservas(reservasCompletas);
+      setReservas(data || []);
     } catch (err) {
       console.error('Error al cargar reservas:', err);
     } finally {
       setCargando(false);
     }
-  };
-
-  useEffect(() => {
-    cargarDatos();
   }, [activeTabId]);
 
-  // Cambiar estado en vivo
+  // Escuchar cambios en tiempo real (Supabase Realtime)
+  useEffect(() => {
+    cargarDatos();
+
+    const channel = supabase
+      .channel('realtime_dashboard')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+        cargarDatos();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'preorders' }, () => {
+        cargarDatos();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [cargarDatos]);
+
+  // Cambiar estado en vivo con Optimistic UI
   const cambiarEstadoReserva = async (id: string, estadoActual: string) => {
-    const estados = ['confirmed', 'pending', 'completed', 'cancelled'];
-    const siguienteIndex = (estados.indexOf(estadoActual) + 1) % estados.length;
-    const nuevoEstado = estados[siguienteIndex];
+    const siguienteIndex = (ESTADOS_DISPONIBLES.indexOf(estadoActual as any) + 1) % ESTADOS_DISPONIBLES.length;
+    const nuevoEstado = ESTADOS_DISPONIBLES[siguienteIndex];
+
+    // Actualización optimista de UI
+    setReservas((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, status: nuevoEstado } : r))
+    );
 
     try {
       const { error } = await supabase
@@ -128,97 +124,38 @@ export default function DemoTotalmenteFuncionalPage() {
         .eq('id', id);
 
       if (error) throw error;
-
-      setReservas((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, status: nuevoEstado } : r))
-      );
     } catch (err) {
-      alert('Error cambiando estado');
-    }
-  };
-
-  // Crear Reserva Demo
-  const crearReservaDemo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!nuevoNombre || !nuevaSucursalId) return;
-
-    try {
-      const hoy = new Date().toISOString().split('T')[0];
-      const { error } = await supabase.from('reservations').insert([
-        {
-          restaurant_id: nuevaSucursalId,
-          organizer_name: nuevoNombre,
-          organizer_phone: nuevoPhone || '+541199998888',
-          guest_count: nuevoPax,
-          reservation_date: hoy,
-          reservation_time: '21:00',
-          status: 'confirmed',
-        },
-      ]);
-
-      if (error) throw error;
-
-      alert('✨ ¡Reserva agregada en tiempo real!');
-      setModalReservaAbierto(false);
-      setNuevoNombre('');
+      console.error('Error cambiando estado:', err);
+      // Revertir en caso de falla
       cargarDatos();
-    } catch (err) {
-      console.error('Error agregando reserva:', err);
     }
   };
 
-  // Agregar Comanda Demo
-  const agregarComandaDemo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reservaSeleccionadaId || !nuevoComensalNombre || !nuevoPlatoNombre) return;
-
-    try {
-      const { error } = await supabase.from('preorders').insert([
-        {
-          reservation_id: reservaSeleccionadaId,
-          guest_name: nuevoComensalNombre,
-          item_name: nuevoPlatoNombre,
-        },
-      ]);
-
-      if (error) throw error;
-
-      alert('🍽️ ¡Comanda agregada con éxito!');
-      setModalComandaAbierto(false);
-      setNuevoComensalNombre('');
-      setNuevoPlatoNombre('');
-      cargarDatos();
-    } catch (err) {
-      console.error('Error agregando comanda:', err);
-    }
-  };
-
+  // Filtrado memoizado en render
   const reservasFiltradas = reservas.filter((r) => {
     if (filtroEstado === 'TODOS') return true;
     return r.status === filtroEstado;
   });
 
-  const agruparPedidosPorComensal = (preorders: PreorderItem[]) => {
-    const comensalesMap: { [key: string]: string[] } = {};
-    preorders?.forEach((p) => {
-      const nombre = p.guest_name || 'Comensal';
-      if (!comensalesMap[nombre]) comensalesMap[nombre] = [];
-      const plato = p.item_name || 'Platillo seleccionado';
-      comensalesMap[nombre].push(plato);
-    });
-    return comensalesMap;
-  };
-
   const totalPax = reservasFiltradas.reduce((acc, r) => acc + (r.guest_count || 0), 0);
+
+  const agruparPedidosPorComensal = (preorders: PreorderItem[]) => {
+    return (preorders || []).reduce<{ [key: string]: string[] }>((acc, p) => {
+      const nombre = p.guest_name || 'Comensal';
+      const plato = p.item_name || 'Platillo seleccionado';
+      if (!acc[nombre]) acc[nombre] = [];
+      acc[nombre].push(plato);
+      return acc;
+    }, {});
+  };
 
   return (
     <div style={{ fontFamily: 'system-ui, -apple-system, sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh', paddingBottom: '5rem' }}>
       
-      {/* HEADER PRINCIPAL CON LOGO DE BOCAPP */}
+      {/* HEADER PRINCIPAL */}
       <header style={{ backgroundColor: '#0f172a', color: '#fff', padding: '1.2rem 1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           
-          {/* LOGO + TITULO */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <img 
               src="/logo.png" 
@@ -240,7 +177,6 @@ export default function DemoTotalmenteFuncionalPage() {
             </div>
           </div>
 
-          {/* ACCIONES DEL HEADER */}
           <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
             <button
               onClick={() => setModalReservaAbierto(true)}
@@ -249,7 +185,7 @@ export default function DemoTotalmenteFuncionalPage() {
               ➕ Probar Nueva Reserva
             </button>
             <button
-              onClick={() => cargarDatos()}
+              onClick={cargarDatos}
               style={{ backgroundColor: '#334155', color: '#fff', border: 'none', padding: '0.65rem 1.1rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.88rem', cursor: 'pointer' }}
             >
               🔄 Recargar Tablero
@@ -263,7 +199,6 @@ export default function DemoTotalmenteFuncionalPage() {
       <div style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0.8rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           
-          {/* Pestañas Sucursales */}
           <div style={{ display: 'flex', gap: '0.4rem', overflowX: 'auto' }}>
             <button
               onClick={() => setActiveTabId('TODAS')}
@@ -302,7 +237,6 @@ export default function DemoTotalmenteFuncionalPage() {
             ))}
           </div>
 
-          {/* Filtro por Estado */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#64748b' }}>Filtrar:</span>
             <select
@@ -321,7 +255,7 @@ export default function DemoTotalmenteFuncionalPage() {
         </div>
       </div>
 
-      {/* MÉTRICAS EN TIEMPO REAL */}
+      {/* MÉTRICAS */}
       <main style={{ maxWidth: '1200px', margin: '2rem auto', padding: '0 1.5rem' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
           <div style={{ backgroundColor: '#fff', padding: '1.2rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -340,7 +274,7 @@ export default function DemoTotalmenteFuncionalPage() {
           </div>
         </div>
 
-        {/* LISTADO DE TARJETAS */}
+        {/* TARJETAS */}
         {cargando ? (
           <div style={{ textAlign: 'center', padding: '4rem 0', color: '#64748b' }}>
             ⏳ Actualizando datos...
@@ -374,7 +308,6 @@ export default function DemoTotalmenteFuncionalPage() {
                     flexDirection: 'column'
                   }}
                 >
-                  {/* HEADER TARJETA */}
                   <div style={{ backgroundColor: '#1e293b', color: '#fff', padding: '0.8rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontSize: '0.75rem', color: '#38bdf8', fontWeight: '700' }}>
@@ -404,7 +337,6 @@ export default function DemoTotalmenteFuncionalPage() {
                     </button>
                   </div>
 
-                  {/* DATOS CLIENTE Y ACCIONES */}
                   <div style={{ padding: '1rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
                     <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>Titular Mesa</div>
                     <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#0f172a' }}>👤 {res.organizer_name}</div>
@@ -451,7 +383,6 @@ export default function DemoTotalmenteFuncionalPage() {
                     </div>
                   </div>
 
-                  {/* COMANDAS */}
                   <div style={{ padding: '1rem', flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                       <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '800', textTransform: 'uppercase' }}>
@@ -488,7 +419,6 @@ export default function DemoTotalmenteFuncionalPage() {
                     )}
                   </div>
 
-                  {/* FOOTER TARJETA */}
                   <div style={{ padding: '0.6rem 1rem', backgroundColor: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: '0.8rem', color: '#475569', display: 'flex', justifyContent: 'space-between', fontWeight: '600' }}>
                     <span>👥 {res.guest_count} Personas</span>
                     <span style={{ color: '#2563eb' }}>ID: {res.id.substring(0, 6)}...</span>
@@ -500,70 +430,146 @@ export default function DemoTotalmenteFuncionalPage() {
         )}
       </main>
 
-      {/* MODAL 1: NUEVA RESERVA */}
+      {/* MODALES REFACTORIZADOS */}
       {modalReservaAbierto && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 100 }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '2rem', maxWidth: '420px', width: '100%' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 1rem 0' }}>➕ Simular Nueva Reserva</h2>
-            <form onSubmit={crearReservaDemo} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Local / Dirección:</label>
-                <select value={nuevaSucursalId} onChange={(e) => setNuevaSucursalId(e.target.value)} style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
-                  {sucursales.map((s) => (
-                    <option key={s.id} value={s.id}>📍 {s.city || s.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Nombre Titular:</label>
-                <input type="text" placeholder="Ej: Lionel Messi" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} required style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Teléfono / WhatsApp:</label>
-                <input type="text" placeholder="+541199998888" value={nuevoPhone} onChange={(e) => setNuevoPhone(e.target.value)} style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Comensales (Pax):</label>
-                <input type="number" min="1" max="20" value={nuevoPax} onChange={(e) => setNuevoPax(Number(e.target.value))} style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-                <button type="button" onClick={() => setModalReservaAbierto(false)} style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', fontWeight: '700', cursor: 'pointer' }}>Cancelar</button>
-                <button type="submit" style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: '#fff', fontWeight: '700', cursor: 'pointer' }}>Guardar</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <ModalReserva
+          sucursales={sucursales}
+          onClose={() => setModalReservaAbierto(false)}
+          onSuccess={cargarDatos}
+        />
       )}
 
-      {/* MODAL 2: AGREGAR COMANDA */}
       {modalComandaAbierto && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 100 }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '2rem', maxWidth: '420px', width: '100%' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 1rem 0' }}>🍽️ Agregar Platillo a Comanda</h2>
-            <form onSubmit={agregarComandaDemo} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Nombre del Comensal:</label>
-                <input type="text" placeholder="Ej: Maria Lopez" value={nuevoComensalNombre} onChange={(e) => setNuevoComensalNombre(e.target.value)} required style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Plato / Menú seleccionado:</label>
-                <input type="text" placeholder="Ej: Bife de Chorizo con Papas" value={nuevoPlatoNombre} onChange={(e) => setNuevoPlatoNombre(e.target.value)} required style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
-                <button type="button" onClick={() => setModalComandaAbierto(false)} style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', fontWeight: '700', cursor: 'pointer' }}>Cancelar</button>
-                <button type="submit" style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: 'none', backgroundColor: '#16a34a', color: '#fff', fontWeight: '700', cursor: 'pointer' }}>Guardar Plato</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <ModalComanda
+          reservaId={reservaSeleccionadaId}
+          onClose={() => setModalComandaAbierto(false)}
+          onSuccess={cargarDatos}
+        />
       )}
 
+    </div>
+  );
+}
+
+// --- SUBCOMPONENTES DE MODALES ---
+
+function ModalReserva({ sucursales, onClose, onSuccess }: { sucursales: SucursalRestaurante[]; onClose: () => void; onSuccess: () => void }) {
+  const [nombre, setNombre] = useState('');
+  const [phone, setPhone] = useState('');
+  const [pax, setPax] = useState(2);
+  const [sucursalId, setSucursalId] = useState(sucursales[0]?.id || '');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nombre || !sucursalId) return;
+
+    try {
+      const hoy = new Date().toISOString().split('T')[0];
+      const { error } = await supabase.from('reservations').insert([
+        {
+          restaurant_id: sucursalId,
+          organizer_name: nombre,
+          organizer_phone: phone || '+541199998888',
+          guest_count: pax,
+          reservation_date: hoy,
+          reservation_time: '21:00',
+          status: 'confirmed',
+        },
+      ]);
+
+      if (error) throw error;
+      onSuccess();
+      onClose();
+    } catch (err) {
+      console.error('Error agregando reserva:', err);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 100 }}>
+      <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '2rem', maxWidth: '420px', width: '100%' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 1rem 0' }}>➕ Simular Nueva Reserva</h2>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Local / Dirección:</label>
+            <select value={sucursalId} onChange={(e) => setSucursalId(e.target.value)} style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}>
+              {sucursales.map((s) => (
+                <option key={s.id} value={s.id}>📍 {s.city || s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Nombre Titular:</label>
+            <input type="text" placeholder="Ej: Lionel Messi" value={nombre} onChange={(e) => setNombre(e.target.value)} required style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Teléfono / WhatsApp:</label>
+            <input type="text" placeholder="+541199998888" value={phone} onChange={(e) => setPhone(e.target.value)} style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Comensales (Pax):</label>
+            <input type="number" min="1" max="20" value={pax} onChange={(e) => setPax(Number(e.target.value))} style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', fontWeight: '700', cursor: 'pointer' }}>Cancelar</button>
+            <button type="submit" style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: 'none', backgroundColor: '#2563eb', color: '#fff', fontWeight: '700', cursor: 'pointer' }}>Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ModalComanda({ reservaId, onClose, onSuccess }: { reservaId: string; onClose: () => void; onSuccess: () => void }) {
+  const [comensalNombre, setComensalNombre] = useState('');
+  const [platoNombre, setPlatoNombre] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reservaId || !comensalNombre || !platoNombre) return;
+
+    try {
+      const { error } = await supabase.from('preorders').insert([
+        {
+          reservation_id: reservaId,
+          guest_name: comensalNombre,
+          item_name: platoNombre,
+        },
+      ]);
+
+      if (error) throw error;
+      onSuccess();
+      onClose();
+    } catch (err) {
+      console.error('Error agregando comanda:', err);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 100 }}>
+      <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '2rem', maxWidth: '420px', width: '100%' }}>
+        <h2 style={{ fontSize: '1.25rem', fontWeight: '800', margin: '0 0 1rem 0' }}>🍽️ Agregar Platillo a Comanda</h2>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Nombre del Comensal:</label>
+            <input type="text" placeholder="Ej: Maria Lopez" value={comensalNombre} onChange={(e) => setComensalNombre(e.target.value)} required style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.2rem' }}>Plato / Menú seleccionado:</label>
+            <input type="text" placeholder="Ej: Bife de Chorizo con Papas" value={platoNombre} onChange={(e) => setPlatoNombre(e.target.value)} required style={{ width: '100%', padding: '0.55rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.8rem' }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#f1f5f9', fontWeight: '700', cursor: 'pointer' }}>Cancelar</button>
+            <button type="submit" style={{ flex: 1, padding: '0.6rem', borderRadius: '6px', border: 'none', backgroundColor: '#16a34a', color: '#fff', fontWeight: '700', cursor: 'pointer' }}>Guardar Plato</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
