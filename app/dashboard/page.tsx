@@ -52,7 +52,7 @@ export default function RestaurantDashboardPage() {
           table: 'reservations',
           filter: `restaurant_id=eq.${selectedRestaurant}`,
         },
-        (payload) => {
+        (payload: any) => {
           console.log('Cambio detectado en tiempo real:', payload);
 
           if (payload.eventType === 'INSERT') {
