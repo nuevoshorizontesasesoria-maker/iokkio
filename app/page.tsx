@@ -1,9 +1,15 @@
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 
+// Definimos la interfaz para la sucursal para evitar el 'implicit any'
+interface Sucursal {
+  id: string;
+  name: string;
+  [key: string]: any;
+}
+
 export default async function HomePage() {
   // 1. Consultamos la base de datos para traer las sucursales
-  // (Asegúrate de que 'restaurants' sea el nombre correcto de tu tabla)
   const { data: sucursales, error } = await supabase.from('restaurants').select('*')
 
   if (error) {
@@ -19,8 +25,8 @@ export default async function HomePage() {
       <h1 className='text-3xl font-bold mb-6 text-gray-800'>Elige una sucursal</h1>
       
       <div className='flex flex-col gap-4'>
-        {/* 2. Mostramos cada sucursal como un botón que nos lleva al formulario */}
-        {sucursales?.map((sucursal) => (
+        {/* 2. Mostramos cada sucursal con tipado explicito Sucursal */}
+        {(sucursales as Sucursal[])?.map((sucursal: Sucursal) => (
           <Link 
             key={sucursal.id} 
             href={`/reservar?restaurant_id=${sucursal.id}`}
