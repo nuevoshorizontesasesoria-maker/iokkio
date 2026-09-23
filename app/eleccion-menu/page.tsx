@@ -4,6 +4,8 @@ import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
+const RESERVA_DEMO_ID = '1bedc4d7-e326-45a5-be37-321a9859bdc9';
+
 function EleccionMenuContenido() {
   const searchParams = useSearchParams();
   const reservationId = searchParams?.get('reservation_id');
@@ -151,10 +153,111 @@ function EleccionMenuContenido() {
   }
 
   if (estado === 'error') {
+    const esSinParametros = mensajeError === 'Enlace inválido o incompleto.';
+
+    // ✅ PÁGINA EDUCATIVA — cuando entran sin parámetros
+    if (esSinParametros) {
+      return (
+        <main style={{ maxWidth: '520px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+
+          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🍽️</div>
+            <h2 style={{ margin: '0 0 0.5rem 0', color: '#0f172a', fontSize: '1.5rem', fontWeight: '800' }}>
+              Menú del Comensal
+            </h2>
+            <p style={{ color: '#64748b', fontSize: '0.9rem', margin: 0 }}>
+              Cada invitado elige su menú desde un link personal
+            </p>
+          </div>
+
+          <div style={{ backgroundColor: '#f8fafc', padding: '1.2rem', borderRadius: '10px', marginBottom: '1rem', border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem' }}>
+              <span style={{ fontSize: '1.2rem' }}>📱</span>
+              <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>¿Cómo llego al menú?</strong>
+            </div>
+            <p style={{ margin: 0, color: '#475569', fontSize: '0.88rem', lineHeight: '1.6' }}>
+              El organizador de la reserva te comparte un link por WhatsApp. Cuando lo abras, vas a poder elegir tu bebida y entrada sin registrarte.
+            </p>
+          </div>
+
+          <div style={{ backgroundColor: '#f0fdf4', padding: '1.2rem', borderRadius: '10px', marginBottom: '1rem', border: '1px solid #bbf7d0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem' }}>
+              <span style={{ fontSize: '1.2rem' }}>🏪</span>
+              <strong style={{ fontSize: '0.95rem', color: '#14532d' }}>¿Sos el restaurante?</strong>
+            </div>
+            <p style={{ margin: '0 0 0.7rem 0', color: '#166534', fontSize: '0.88rem', lineHeight: '1.6' }}>
+              Ingresá a tu panel de gestión para ver las reservas y comandas de tu local.
+            </p>
+            <a
+              href="/tablero-de-reservas-y-comandas"
+              style={{
+                display: 'inline-block',
+                backgroundColor: '#16a34a',
+                color: '#fff',
+                padding: '0.55rem 1rem',
+                borderRadius: '8px',
+                textDecoration: 'none',
+                fontSize: '0.85rem',
+                fontWeight: '700',
+              }}
+            >
+              Ir al panel del restaurante →
+            </a>
+          </div>
+
+          <div style={{ backgroundColor: '#fffbeb', padding: '1.2rem', borderRadius: '10px', border: '1px solid #fde68a' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem' }}>
+              <span style={{ fontSize: '1.2rem' }}>🧪</span>
+              <strong style={{ fontSize: '0.95rem', color: '#78350f' }}>Modo demo</strong>
+            </div>
+            <p style={{ margin: '0 0 0.7rem 0', color: '#92400e', fontSize: '0.88rem', lineHeight: '1.6' }}>
+              Si estás probando el sistema, podés abrir un menú de ejemplo con datos reales:
+            </p>
+            <a
+              href={`/menu-grupo?id=${RESERVA_DEMO_ID}`}
+              style={{
+                display: 'inline-block',
+                backgroundColor: '#f59e0b',
+                color: '#fff',
+                padding: '0.55rem 1rem',
+                borderRadius: '8px',
+                textDecoration: 'none',
+                fontSize: '0.85rem',
+                fontWeight: '700',
+              }}
+            >
+              🔗 Probar menú de ejemplo →
+            </a>
+            <p style={{ margin: '0.7rem 0 0 0', color: '#a16207', fontSize: '0.75rem', fontStyle: 'italic' }}>
+              (Este link solo funciona en el entorno de demo)
+            </p>
+          </div>
+
+        </main>
+      );
+    }
+
+    // ❌ ERROR REAL — invitado no encontrado, reserva borrada, etc.
     return (
       <main style={{ maxWidth: '450px', margin: '6rem auto', padding: '2.5rem', textAlign: 'center', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-        <h2 style={{ color: '#d32f2f', marginBottom: '1rem' }}>Enlace no válido</h2>
-        <p style={{ color: '#666' }}>{mensajeError}</p>
+        <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>⚠️</div>
+        <h2 style={{ color: '#d32f2f', marginBottom: '1rem', fontSize: '1.4rem' }}>Enlace no válido</h2>
+        <p style={{ color: '#666', marginBottom: '1.5rem' }}>{mensajeError}</p>
+        <a
+          href="/"
+          style={{
+            display: 'inline-block',
+            backgroundColor: '#0f172a',
+            color: '#fff',
+            padding: '0.6rem 1.2rem',
+            borderRadius: '8px',
+            textDecoration: 'none',
+            fontSize: '0.9rem',
+            fontWeight: '700',
+          }}
+        >
+          ← Volver al inicio
+        </a>
       </main>
     );
   }
