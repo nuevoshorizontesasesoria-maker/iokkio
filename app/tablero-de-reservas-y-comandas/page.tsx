@@ -33,7 +33,7 @@ interface SucursalRestaurante {
 const ESTADOS_DISPONIBLES = ['confirmed', 'pending', 'completed', 'cancelled'] as const;
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.iokkio.com';
 
-export default function DemoTotalmenteFuncionalPage() {
+export default function TableroPage() {
   const [sucursales, setSucursales] = useState<SucursalRestaurante[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>('TODAS');
   const [filtroEstado, setFiltroEstado] = useState<string>('TODOS');
@@ -68,11 +68,10 @@ export default function DemoTotalmenteFuncionalPage() {
     obtenerSucursales();
   }, []);
 
-  // 2. Cargar Reservas y Comandas (✅ FIX: 2 queries separadas para evitar error 400)
+  // 2. Cargar Reservas y Comandas (2 queries separadas para evitar error 400)
   const cargarDatos = useCallback(async () => {
     setCargando(true);
     try {
-      // 1. Cargar reservas
       let queryReservas = supabase
         .from('reservations')
         .select('*')
@@ -85,14 +84,12 @@ export default function DemoTotalmenteFuncionalPage() {
       const { data: reservasData, error: reservasError } = await queryReservas;
       if (reservasError) throw reservasError;
 
-      // 2. Cargar preorders por separado
       const { data: preordersData, error: preordersError } = await supabase
         .from('preorders')
         .select('*');
 
       if (preordersError) throw preordersError;
 
-      // 3. Combinar en JS
       const combinado: ReservaDetalle[] = (reservasData || []).map((r: any) => ({
         ...r,
         preorders: (preordersData || []).filter((p: any) => p.reservation_id === r.id),
@@ -174,15 +171,11 @@ export default function DemoTotalmenteFuncionalPage() {
         <div style={{ maxWidth: '1200px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <img
-              src="/logo.png"
-              alt="BocAPP Logo"
-              style={{ width: '55px', height: '55px', borderRadius: '12px', backgroundColor: '#ffffff', padding: '4px', objectFit: 'contain' }}
-            />
+            <span style={{ fontSize: '2.2rem', lineHeight: 1 }}>⚡</span>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <h1 style={{ fontSize: '1.8rem', fontWeight: '800', margin: 0, color: '#ffffff' }}>
-                  Boc<span style={{ color: '#f97316' }}>APP</span>
+                <h1 style={{ fontSize: '1.8rem', fontWeight: '800', margin: 0, background: 'linear-gradient(to right, #34d399, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  IOKKIO
                 </h1>
                 <span style={{ backgroundColor: '#38bdf8', color: '#0f172a', fontSize: '0.7rem', fontWeight: '800', padding: '0.2rem 0.5rem', borderRadius: '12px' }}>
                   DEMO EN VIVO
