@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Prearrival MVP",
-  description: "Sistema de reservas",
+  title: "IOKKIO · Reservas",
+  description: "Sistema de reservas y comandas",
 };
 
 export default function RootLayout({
