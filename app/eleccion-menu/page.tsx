@@ -26,17 +26,24 @@ function EleccionMenuContenido() {
 
     async function cargarDatos() {
       try {
-        // 1. Cargar datos del invitado
+        // 1. Guest — valida que pertenezca a esa reserva
         const { data: guestData, error: guestError } = await supabase
           .from('guests')
           .select('*')
           .eq('id', guestId)
+          .eq('reservation_id', reservationId)
           .single();
 
-        if (guestError || !guestData) throw new Error('Invitado no encontrado.');
+        if (guestError || !guestData) throw new Error('Invitado no encontrado para esta reserva.');
         setInvitado(guestData);
 
-        // 2. Cargar detalles de la reserva y restaurante
+        // 2. Si ya preordenó, mostrar éxito directamente
+        if (guestData.preordered) {
+          setEstado('exito');
+          return;
+        }
+
+        // 3. Cargar reserva + restaurante
         const { data: resData, error: resError } = await supabase
           .from('reservations')
           .select('*, restaurants(name)')
@@ -46,11 +53,12 @@ function EleccionMenuContenido() {
         if (resError || !resData) throw new Error('Reserva no encontrada.');
         setReserva(resData);
 
-        // 3. Cargar menú del restaurante
+        // 4. Cargar menú — solo activos de ese restaurante
         const { data: menuData, error: menuError } = await supabase
           .from('menu_items')
           .select('*')
-          .eq('restaurant_id', resData.restaurant_id);
+          .eq('restaurant_id', resData.restaurant_id)
+          .eq('active', true);
 
         if (menuError) throw new Error('Error al cargar la carta.');
         setMenuItems(menuData || []);
@@ -74,7 +82,20 @@ function EleccionMenuContenido() {
     }
 
     try {
-      // 1. Insertar las selecciones del acompañante en preorders
+      // Verificar duplicados
+      const { data: existing } = await supabase
+        .from('preorders')
+        .select('id')
+        .eq('reservation_id', reservationId)
+        .eq('guest_phone', invitado.phone);
+
+      if (existing && existing.length > 0) {
+        alert('Ya habíamos registrado tu elección previamente.');
+        setEstado('exito');
+        return;
+      }
+
+      // Insertar selecciones
       const { error: preorderError } = await supabase
         .from('preorders')
         .insert([
@@ -96,7 +117,15 @@ function EleccionMenuContenido() {
 
       if (preorderError) throw preorderError;
 
-      // 2. Notificar al restaurante en tiempo real sobre este pedido (incluyendo el responsable)
+      // Marcar guest como preordered
+      const { error: updateError } = await supabase
+        .from('guests')
+        .update({ preordered: true })
+        .eq('id', guestId);
+
+      if (updateError) throw updateError;
+
+      // Notificar al restaurante
       await fetch('/api/notificar-restaurante', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -112,6 +141,10 @@ function EleccionMenuContenido() {
       alert(`Error al guardar tu elección: ${err.message}`);
     }
   };
+
+  // Filtrar por categoría con los valores exactos de tu DB
+  const bebidas = menuItems.filter((i) => i.category === 'Bebida');
+  const entradas = menuItems.filter((i) => i.category === 'Entrada');
 
   if (estado === 'cargando') {
     return <div style={{ textAlign: 'center', marginTop: '6rem', fontFamily: 'sans-serif' }}>Cargando menú...</div>;
@@ -144,7 +177,6 @@ function EleccionMenuContenido() {
         Selecciona tu bebida y entrada para la reserva en <strong>{reserva?.restaurants?.name}</strong>.
       </p>
 
-      {/* Tarjeta Informativa con Horario y Responsable */}
       <div style={{ backgroundColor: '#f5f5f5', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', borderLeft: '4px solid #2e7d32', fontSize: '0.95rem' }}>
         <div>⏰ <strong>Horario de Reserva:</strong> {reserva?.reservation_date || ''} a las {reserva?.reservation_time || 'Por definir'}</div>
         <div>👤 <strong>Responsable de Reserva:</strong> {reserva?.organizer_name || 'Organizador de la mesa'}</div>
@@ -162,7 +194,7 @@ function EleccionMenuContenido() {
             style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '1rem', background: '#fff', boxSizing: 'border-box' }}
           >
             <option value="">-- Selecciona una bebida --</option>
-            {menuItems.map((item) => (
+            {bebidas.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name} {item.price ? `- $${item.price}` : ''}
               </option>
@@ -181,7 +213,7 @@ function EleccionMenuContenido() {
             style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #ccc', fontSize: '1rem', background: '#fff', boxSizing: 'border-box' }}
           >
             <option value="">-- Selecciona una entrada --</option>
-            {menuItems.map((item) => (
+            {entradas.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name} {item.price ? `- $${item.price}` : ''}
               </option>
