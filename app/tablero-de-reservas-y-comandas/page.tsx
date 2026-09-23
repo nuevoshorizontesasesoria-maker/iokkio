@@ -30,17 +30,8 @@ interface SucursalRestaurante {
   city?: string;
 }
 
-// ✅ NUEVA: resultado de la API de invitaciones
-interface InvitacionGenerada {
-  guest_id: string;
-  guest_name: string;
-  phone?: string;
-  invite_url: string;
-  whatsapp_deep_link: string | null;
-  status: string;
-}
-
 const ESTADOS_DISPONIBLES = ['confirmed', 'pending', 'completed', 'cancelled'] as const;
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.iokkio.com';
 
 export default function DemoTotalmenteFuncionalPage() {
   const [sucursales, setSucursales] = useState<SucursalRestaurante[]>([]);
@@ -49,16 +40,16 @@ export default function DemoTotalmenteFuncionalPage() {
   const [reservas, setReservas] = useState<ReservaDetalle[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
 
-  // Modales interactivos
+  // Modales
   const [modalReservaAbierto, setModalReservaAbierto] = useState<boolean>(false);
   const [modalComandaAbierto, setModalComandaAbierto] = useState<boolean>(false);
   const [reservaSeleccionadaId, setReservaSeleccionadaId] = useState<string>('');
 
-  // ✅ NUEVO: modal de invitaciones
+  // Modal de invitaciones
   const [modalInvitacionesAbierto, setModalInvitacionesAbierto] = useState<boolean>(false);
-  const [invitaciones, setInvitaciones] = useState<InvitacionGenerada[]>([]);
-  const [cargandoInvitaciones, setCargandoInvitaciones] = useState<boolean>(false);
-  const [nombreReservaInvitaciones, setNombreReservaInvitaciones] = useState<string>('');
+  const [reservaSeleccionadaInvitacionesId, setReservaSeleccionadaInvitacionesId] = useState<string>('');
+  const [nombreOrganizadorInvitaciones, setNombreOrganizadorInvitaciones] = useState<string>('');
+  const [telefonoOrganizadorInvitaciones, setTelefonoOrganizadorInvitaciones] = useState<string>('');
 
   // 1. Cargar Sucursales
   useEffect(() => {
@@ -69,10 +60,7 @@ export default function DemoTotalmenteFuncionalPage() {
           .select('id, name, city');
 
         if (error) throw error;
-
-        if (data && data.length > 0) {
-          setSucursales(data);
-        }
+        if (data && data.length > 0) setSucursales(data);
       } catch (err) {
         console.error('Error cargando sucursales:', err);
       }
@@ -80,23 +68,37 @@ export default function DemoTotalmenteFuncionalPage() {
     obtenerSucursales();
   }, []);
 
-  // 2. Cargar Reservas y Comandas
+  // 2. Cargar Reservas y Comandas (✅ FIX: 2 queries separadas para evitar error 400)
   const cargarDatos = useCallback(async () => {
     setCargando(true);
     try {
-      let query = supabase
+      // 1. Cargar reservas
+      let queryReservas = supabase
         .from('reservations')
-        .select('*, preorders(*)')
+        .select('*')
         .order('reservation_date', { ascending: true });
 
       if (activeTabId !== 'TODAS') {
-        query = query.eq('restaurant_id', activeTabId);
+        queryReservas = queryReservas.eq('restaurant_id', activeTabId);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data: reservasData, error: reservasError } = await queryReservas;
+      if (reservasError) throw reservasError;
 
-      setReservas(data || []);
+      // 2. Cargar preorders por separado
+      const { data: preordersData, error: preordersError } = await supabase
+        .from('preorders')
+        .select('*');
+
+      if (preordersError) throw preordersError;
+
+      // 3. Combinar en JS
+      const combinado: ReservaDetalle[] = (reservasData || []).map((r: any) => ({
+        ...r,
+        preorders: (preordersData || []).filter((p: any) => p.reservation_id === r.id),
+      }));
+
+      setReservas(combinado);
     } catch (err) {
       console.error('Error al cargar reservas:', err);
     } finally {
@@ -104,17 +106,14 @@ export default function DemoTotalmenteFuncionalPage() {
     }
   }, [activeTabId]);
 
+  // Realtime
   useEffect(() => {
     cargarDatos();
 
     const channel = supabase
       .channel('realtime_dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
-        cargarDatos();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'preorders' }, () => {
-        cargarDatos();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => cargarDatos())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'preorders' }, () => cargarDatos())
       .subscribe();
 
     return () => {
@@ -143,33 +142,11 @@ export default function DemoTotalmenteFuncionalPage() {
     }
   };
 
-  // ✅ NUEVA: función que llama a la API de invitaciones
-  const abrirInvitaciones = async (reserva: ReservaDetalle) => {
-    setNombreReservaInvitaciones(reserva.organizer_name);
-    setInvitaciones([]);
+  const abrirInvitaciones = (reserva: ReservaDetalle) => {
+    setReservaSeleccionadaInvitacionesId(reserva.id);
+    setNombreOrganizadorInvitaciones(reserva.organizer_name);
+    setTelefonoOrganizadorInvitaciones(reserva.organizer_phone || '');
     setModalInvitacionesAbierto(true);
-    setCargandoInvitaciones(true);
-
-    try {
-      const res = await fetch('/api/enviar-whatsapp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reservation_id: reserva.id }),
-      });
-
-      const data = await res.json();
-
-      if (data.success && data.resultados) {
-        setInvitaciones(data.resultados);
-      } else {
-        console.warn('Respuesta sin resultados:', data);
-        setInvitaciones([]);
-      }
-    } catch (err) {
-      console.error('Error obteniendo invitaciones:', err);
-    } finally {
-      setCargandoInvitaciones(false);
-    }
   };
 
   const reservasFiltradas = reservas.filter((r) => {
@@ -235,7 +212,7 @@ export default function DemoTotalmenteFuncionalPage() {
         </div>
       </header>
 
-      {/* BARRA DE NAVEGACIÓN Y FILTROS */}
+      {/* BARRA DE FILTROS */}
       <div style={{ backgroundColor: '#ffffff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 0, zIndex: 10 }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0.8rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
 
@@ -422,7 +399,6 @@ export default function DemoTotalmenteFuncionalPage() {
                       </a>
                     </div>
 
-                    {/* ✅ NUEVO: botón de invitar acompañantes */}
                     <button
                       onClick={() => abrirInvitaciones(res)}
                       style={{
@@ -443,7 +419,7 @@ export default function DemoTotalmenteFuncionalPage() {
                         boxShadow: '0 2px 6px rgba(124, 58, 237, 0.3)'
                       }}
                     >
-                      📨 Invitar Acompañantes por WhatsApp
+                      📨 Enviar Link de Invitados
                     </button>
                   </div>
 
@@ -511,12 +487,11 @@ export default function DemoTotalmenteFuncionalPage() {
         />
       )}
 
-      {/* ✅ NUEVO: modal de invitaciones */}
       {modalInvitacionesAbierto && (
         <ModalInvitaciones
-          nombreReserva={nombreReservaInvitaciones}
-          invitaciones={invitaciones}
-          cargando={cargandoInvitaciones}
+          reservationId={reservaSeleccionadaInvitacionesId}
+          nombreOrganizador={nombreOrganizadorInvitaciones}
+          telefonoOrganizador={telefonoOrganizadorInvitaciones}
           onClose={() => setModalInvitacionesAbierto(false)}
         />
       )}
@@ -525,7 +500,7 @@ export default function DemoTotalmenteFuncionalPage() {
   );
 }
 
-// --- SUBCOMPONENTES DE MODALES ---
+// --- SUBCOMPONENTES ---
 
 function ModalReserva({ sucursales, onClose, onSuccess }: { sucursales: SucursalRestaurante[]; onClose: () => void; onSuccess: () => void }) {
   const [nombre, setNombre] = useState('');
@@ -648,160 +623,117 @@ function ModalComanda({ reservaId, onClose, onSuccess }: { reservaId: string; on
   );
 }
 
-// ✅ NUEVO COMPONENTE: Modal de invitaciones
 function ModalInvitaciones({
-  nombreReserva,
-  invitaciones,
-  cargando,
+  reservationId,
+  nombreOrganizador,
+  telefonoOrganizador,
   onClose,
 }: {
-  nombreReserva: string;
-  invitaciones: InvitacionGenerada[];
-  cargando: boolean;
+  reservationId: string;
+  nombreOrganizador: string;
+  telefonoOrganizador: string;
   onClose: () => void;
 }) {
-  const copiarTodos = () => {
-    const texto = invitaciones
-      .map((inv) => `${inv.guest_name}: ${inv.invite_url}`)
-      .join('\n');
-    navigator.clipboard.writeText(texto);
-    alert('✅ Links copiados al portapapeles');
-  };
+  const linkInvitados = `${BASE_URL}/menu-grupo?id=${reservationId}`;
+
+  const mensaje = `¡Hola ${nombreOrganizador}! 🎉\n\nTu reserva está confirmada.\n\n👉 Reenviá este link a tus invitados para que elijan su menú:\n${linkInvitados}`;
+
+  const telefonoLimpio = (telefonoOrganizador || '').replace(/\D/g, '');
+  const whatsappLink = telefonoLimpio
+    ? `https://wa.me/${telefonoLimpio}?text=${encodeURIComponent(mensaje)}`
+    : null;
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 100 }}>
-      <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '1.5rem', maxWidth: '640px', width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', zIndex: 100 }}>
+      <div style={{ backgroundColor: '#fff', borderRadius: '16px', padding: '1.5rem', maxWidth: '540px', width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
           <h2 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0 }}>
-            📨 Invitaciones para {nombreReserva}
+            📨 Invitar invitados
           </h2>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}
-          >
-            ×
-          </button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}>×</button>
         </div>
 
         <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '1.2rem' }}>
-          Cada acompañante recibe un link único para elegir su menú. En producción se envían automáticamente por WhatsApp Business API.
+          Enviá este link a <strong>{nombreOrganizador}</strong>. Él lo reenvía a sus amigos y ellos eligen su menú sin registrarse.
         </p>
 
-        {cargando ? (
-          <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
-            ⏳ Generando links...
-          </div>
-        ) : invitaciones.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8', backgroundColor: '#f8fafc', borderRadius: '10px' }}>
-            No hay acompañantes registrados en esta reserva.
-          </div>
-        ) : (
-          <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {invitaciones.map((inv, idx) => (
-                <div
-                  key={inv.guest_id || idx}
-                  style={{
-                    backgroundColor: '#f8fafc',
-                    padding: '0.75rem 1rem',
-                    borderRadius: '10px',
-                    border: '1px solid #e2e8f0',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: '0.8rem',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <div style={{ flex: 1, minWidth: '150px' }}>
-                    <div style={{ fontWeight: '700', fontSize: '0.95rem', color: '#0f172a' }}>
-                      👤 {inv.guest_name}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                      {inv.phone || 'sin teléfono'}
-                    </div>
-                  </div>
+        <div style={{ backgroundColor: '#f1f5f9', padding: '0.8rem', borderRadius: '8px', fontFamily: 'monospace', fontSize: '0.75rem', wordBreak: 'break-all', marginBottom: '1rem', color: '#334155' }}>
+          {linkInvitados}
+        </div>
 
-                  <div style={{ display: 'flex', gap: '0.4rem' }}>
-                    {inv.whatsapp_deep_link ? (
-                      <a
-                        href={inv.whatsapp_deep_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          backgroundColor: '#25d366',
-                          color: '#fff',
-                          padding: '0.4rem 0.8rem',
-                          borderRadius: '6px',
-                          textDecoration: 'none',
-                          fontSize: '0.78rem',
-                          fontWeight: '700',
-                        }}
-                      >
-                        📱 Enviar WhatsApp
-                      </a>
-                    ) : (
-                      <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>
-                        Sin teléfono
-                      </span>
-                    )}
-
-                    <a
-                      href={inv.invite_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        backgroundColor: '#2563eb',
-                        color: '#fff',
-                        padding: '0.4rem 0.8rem',
-                        borderRadius: '6px',
-                        textDecoration: 'none',
-                        fontSize: '0.78rem',
-                        fontWeight: '700',
-                      }}
-                    >
-                      🔗 Abrir link
-                    </a>
-                  </div>
-                </div>
-              ))}
+        <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column' }}>
+          {whatsappLink ? (
+            <a
+              href={whatsappLink}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                backgroundColor: '#25d366',
+                color: '#fff',
+                padding: '0.7rem',
+                borderRadius: '8px',
+                textDecoration: 'none',
+                fontSize: '0.9rem',
+                fontWeight: '700',
+                textAlign: 'center',
+              }}
+            >
+              📱 Enviar link a {nombreOrganizador} por WhatsApp
+            </a>
+          ) : (
+            <div style={{ backgroundColor: '#fef3c7', color: '#92400e', padding: '0.7rem', borderRadius: '8px', fontSize: '0.85rem', textAlign: 'center' }}>
+              ⚠️ El organizador no tiene teléfono cargado
             </div>
+          )}
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.2rem' }}>
-              <button
-                onClick={copiarTodos}
-                style={{
-                  flex: 1,
-                  padding: '0.6rem',
-                  borderRadius: '8px',
-                  border: '1px solid #cbd5e1',
-                  backgroundColor: '#f1f5f9',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                }}
-              >
-                📋 Copiar todos los links
-              </button>
-              <button
-                onClick={onClose}
-                style={{
-                  flex: 1,
-                  padding: '0.6rem',
-                  borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: '#0f172a',
-                  color: '#fff',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                }}
-              >
-                Cerrar
-              </button>
-            </div>
-          </>
-        )}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(linkInvitados);
+              alert('✅ Link copiado');
+            }}
+            style={{
+              backgroundColor: '#f1f5f9',
+              color: '#334155',
+              padding: '0.7rem',
+              borderRadius: '8px',
+              border: '1px solid #cbd5e1',
+              fontSize: '0.9rem',
+              fontWeight: '700',
+              cursor: 'pointer',
+            }}
+          >
+            📋 Copiar link
+          </button>
+
+          <a
+            href={linkInvitados}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              backgroundColor: '#2563eb',
+              color: '#fff',
+              padding: '0.7rem',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              fontSize: '0.9rem',
+              fontWeight: '700',
+              textAlign: 'center',
+            }}
+          >
+            🔗 Probar el link (abrir en nueva pestaña)
+          </a>
+        </div>
+
+        <div style={{ marginTop: '1.2rem', padding: '0.8rem', backgroundColor: '#fffbeb', borderRadius: '8px', borderLeft: '3px solid #f59e0b', fontSize: '0.8rem', color: '#78350f' }}>
+          💡 <strong>¿Cómo funciona?</strong>
+          <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.2rem' }}>
+            <li>{nombreOrganizador} recibe el link</li>
+            <li>Lo reenvía al grupo de WhatsApp</li>
+            <li>Cada amigo pone su nombre y elige su menú</li>
+            <li>Ven los platos de los demás en tiempo real</li>
+            <li>Las comandas llegan acá automáticamente</li>
+          </ul>
+        </div>
       </div>
     </div>
   );
