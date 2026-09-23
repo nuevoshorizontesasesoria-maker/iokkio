@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function DemoNavbar() {
   return (
     <header style={{
@@ -22,15 +24,11 @@ export default function DemoNavbar() {
         flexWrap: 'wrap',
         gap: '12px'
       }}>
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '8px' 
-        }}>
-          <span style={{ 
-            fontWeight: 900, 
-            fontSize: '18px', 
-            letterSpacing: '0.05em', 
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{
+            fontWeight: 900,
+            fontSize: '18px',
+            letterSpacing: '0.05em',
             background: 'linear-gradient(to right, #34d399, #38bdf8)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent'
@@ -39,34 +37,24 @@ export default function DemoNavbar() {
           </span>
         </div>
 
-        <nav style={{ 
-          display: 'flex', 
-          gap: '10px', 
+        <nav style={{
+          display: 'flex',
+          gap: '10px',
           flexWrap: 'wrap',
           alignItems: 'center'
         }}>
-          <a href="/reservar" style={navButtonStyle}>
-            📝 Reservar
-          </a>
-          <a href="/eleccion-menu" style={navButtonStyle}>
-            🍽️ Menú
-          </a>
-          <a href="/dashboard" style={navButtonStyle}>
-            📊 Dashboard
-          </a>
-          <a href="/admin" style={navButtonStyle}>
-            ⚙️ Admin
-          </a>
-          <a href="/tablero-de-reservas-y-comandas" style={navButtonStyle}>
-            📋 Comandas
-          </a>
+          <Link href="/reservar" style={navButtonStyle}>📝 Reservar</Link>
+          <Link href="/eleccion-menu" style={navButtonStyle}>🍽️ Menú</Link>
+          <Link href="/dashboard" style={navButtonStyle}>📊 Dashboard</Link>
+          <Link href="/admin" style={navButtonStyle}>⚙️ Admin</Link>
+          <Link href="/tablero-de-reservas-y-comandas" style={navButtonStyle}>📋 Comandas</Link>
         </nav>
       </div>
     </header>
   );
 }
 
-const navButtonStyle = {
+const navButtonStyle: React.CSSProperties = {
   backgroundColor: '#1e293b',
   color: '#f8fafc',
   padding: '8px 14px',
