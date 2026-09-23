@@ -3,16 +3,18 @@ export default function DemoNavbar() {
     <header style={{
       position: 'sticky',
       top: 0,
-      zIndex: 50,
+      zIndex: 9999,
       backgroundColor: '#0f172a',
       color: '#ffffff',
-      borderBottom: '1px solid #1e293b',
-      padding: '12px 24px',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-      fontFamily: 'system-ui, sans-serif'
+      borderBottom: '1px solid #334155',
+      padding: '12px 20px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      width: '100%',
+      boxSizing: 'border-box'
     }}>
       <div style={{
-        maxWidth: '1280px',
+        maxWidth: '1200px',
         margin: '0 auto',
         display: 'flex',
         justifyContent: 'space-between',
@@ -20,29 +22,31 @@ export default function DemoNavbar() {
         flexWrap: 'wrap',
         gap: '12px'
       }}>
-        <div style={{ fontWeight: 800, fontSize: '18px', letterSpacing: '0.05em', color: '#34d399' }}>
+        <div style={{ 
+          fontWeight: 800, 
+          fontSize: '18px', 
+          letterSpacing: '0.05em', 
+          color: '#34d399' 
+        }}>
           IOKKIO DEMO
         </div>
-        <nav style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <a href="/reservar" style={buttonStyle}>
-            📝 Reservar
-          </a>
-          <a href="/eleccion-menu" style={buttonStyle}>
-            🍽️ Menú
-          </a>
-          <a href="/dashboard" style={buttonStyle}>
-            📊 Dashboard
-          </a>
-          <a href="/admin" style={buttonStyle}>
-            ⚙️ Admin
-          </a>
+        <nav style={{ 
+          display: 'flex', 
+          gap: '8px', 
+          flexWrap: 'wrap',
+          alignItems: 'center'
+        }}>
+          <a href="/reservar" style={btnStyle}>📝 Reservar</a>
+          <a href="/eleccion-menu" style={btnStyle}>🍽️ Menú</a>
+          <a href="/dashboard" style={btnStyle}>📊 Dashboard</a>
+          <a href="/admin" style={btnStyle}>⚙️ Admin</a>
         </nav>
       </div>
     </header>
   );
 }
 
-const buttonStyle = {
+const btnStyle = {
   backgroundColor: '#1e293b',
   color: '#ffffff',
   padding: '8px 14px',
@@ -50,6 +54,7 @@ const buttonStyle = {
   textDecoration: 'none',
   fontSize: '14px',
   fontWeight: 500,
-  border: '1px solid #334155',
-  display: 'inline-block'
+  border: '1px solid #475569',
+  display: 'inline-block',
+  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
 };
