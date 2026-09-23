@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://darkorange-manatee-747277.hostingersite.com';
+// ✅ FIX: fallback apunta a tu dominio real, no a hostingersite
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://app.iokkio.com';
 
 // Definición de tipo para evitar 'implicit any' en TypeScript
 interface Guest {
@@ -42,20 +43,40 @@ export async function POST(request: Request) {
 
     const restaurantName = (reservation as any)?.restaurants?.name || 'el restaurante';
 
-    // 3. Generar enlace y mensaje para cada acompañante (Guest tipado explícitamente)
+    // 3. Generar enlace, mensaje y deep link de WhatsApp por cada acompañante
     const envios = (guests as Guest[]).map(async (guest: Guest) => {
       const inviteUrl = `${BASE_URL}/eleccion-menu?reservation_id=${reservation_id}&guest_id=${guest.id}`;
       const mensaje = `¡Hola ${guest.name}! 👋\n\nHas sido invitado/a a una reserva en *${restaurantName}*.\nPor favor, ingresa al siguiente enlace para elegir tu bebida y entrada:\n\n👉 ${inviteUrl}`;
 
-      // AQUÍ se conecta tu proveedor de API de WhatsApp (Twilio, Meta, Evolution, etc.)
-      console.log(`[WhatsApp listo para ${guest.phone || 'sin teléfono'}]:\n${mensaje}`);
+      // ✅ FIX: Deep link a WhatsApp (wa.me) sin API paga
+      // Limpiamos el teléfono: solo dígitos (sin +, espacios, guiones)
+      const phoneClean = (guest.phone || '').replace(/\D/g, '');
+      const whatsappDeepLink = phoneClean
+        ? `https://wa.me/${phoneClean}?text=${encodeURIComponent(mensaje)}`
+        : null;
 
-      return { guest_id: guest.id, phone: guest.phone, status: 'sent' };
+      // Log para debug en el servidor
+      console.log(
+        `[WhatsApp MOCK para ${guest.phone || 'sin teléfono'}]:\n${mensaje}\n`
+      );
+
+      return {
+        guest_id: guest.id,
+        guest_name: guest.name,
+        phone: guest.phone,
+        invite_url: inviteUrl,             // ← abrir vos en la demo
+        whatsapp_deep_link: whatsappDeepLink, // ← abrir WhatsApp con mensaje listo
+        status: whatsappDeepLink ? 'link_ready' : 'no_phone',
+      };
     });
 
     const resultados = await Promise.all(envios);
 
-    return NextResponse.json({ success: true, total: resultados.length, resultados });
+    return NextResponse.json({
+      success: true,
+      total: resultados.length,
+      resultados,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
