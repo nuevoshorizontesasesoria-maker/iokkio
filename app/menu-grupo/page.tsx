@@ -3,6 +3,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { PushPermissionButton } from '@/components/PushPermissionButton';
 
 function MenuGrupoContenido() {
   const searchParams = useSearchParams();
@@ -11,12 +12,11 @@ function MenuGrupoContenido() {
   const [reserva, setReserva] = useState<any>(null);
   const [menuItems, setMenuItems] = useState<any[]>([]);
   const [preorders, setPreorders] = useState<any[]>([]);
-
   const [nombreComensal, setNombreComensal] = useState('');
   const [isNombreGuardado, setIsNombreGuardado] = useState(false);
-
   const [itemSeleccionado, setItemSeleccionado] = useState('');
   const [estado, setEstado] = useState('cargando');
+  const [comandasAbiertas, setComandasAbiertas] = useState(false);
 
   useEffect(() => {
     if (!id) {
@@ -34,6 +34,7 @@ function MenuGrupoContenido() {
 
         if (resError || !resData) throw new Error('Reserva no encontrada');
         setReserva(resData);
+        setComandasAbiertas(resData.comandas_open === true);
 
         const { data: menuData } = await supabase
           .from('menu_items')
@@ -56,7 +57,28 @@ function MenuGrupoContenido() {
 
     cargarDatosIniciales();
 
-    const channel = supabase
+    // Realtime: escuchar cambios en la reserva (cuando el anfitrión confirma)
+    const channelReserva = supabase
+      .channel(`reserva-${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'reservations',
+          filter: `id=eq.${id}`,
+        },
+        (payload: any) => {
+          if (payload.new) {
+            setReserva(payload.new);
+            setComandasAbiertas(payload.new.comandas_open === true);
+          }
+        }
+      )
+      .subscribe();
+
+    // Realtime: escuchar cambios en preorders (para ver los platos de la mesa)
+    const channelPreorders = supabase
       .channel(`preorders-reserva-${id}`)
       .on(
         'postgres_changes',
@@ -77,7 +99,8 @@ function MenuGrupoContenido() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(channelReserva);
+      supabase.removeChannel(channelPreorders);
     };
   }, [id]);
 
@@ -85,10 +108,13 @@ function MenuGrupoContenido() {
     e.preventDefault();
     if (!itemSeleccionado || !nombreComensal) return;
 
+    const platoElegido = menuItems.find((item) => item.id === itemSeleccionado);
+
     const { error } = await supabase.from('preorders').insert([
       {
         reservation_id: id,
         menu_item_id: itemSeleccionado,
+        item_name: platoElegido?.name || 'Plato',
         guest_name: nombreComensal,
       },
     ]);
@@ -107,7 +133,9 @@ function MenuGrupoContenido() {
     }
   };
 
-  // --- RENDER: SIN ID ---
+  // ============================================
+  // RENDER: SIN ID
+  // ============================================
   if (estado === 'sin-id') {
     return (
       <main style={{ maxWidth: '520px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
@@ -188,17 +216,71 @@ function MenuGrupoContenido() {
     );
   }
 
+  // ============================================
+  // RENDER: COMANDAS CERRADAS (esperando anfitrión)
+  // ============================================
+  if (!comandasAbiertas) {
+    return (
+      <main style={{ maxWidth: '540px', margin: '3rem auto', padding: '2.5rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>⏳</div>
+          <h2 style={{ margin: '0 0 0.5rem 0', color: '#0f172a', fontSize: '1.4rem', fontWeight: '800' }}>
+            Esperando confirmación del anfitrión
+          </h2>
+          <p style={{ color: '#64748b', fontSize: '0.92rem', margin: 0 }}>
+            El organizador debe confirmar la reserva 15 minutos antes.
+          </p>
+        </div>
+
+        <div style={{ backgroundColor: '#f1f5f9', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', borderLeft: '4px solid #2563eb' }}>
+          <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '0.4rem' }}>
+            <strong>📍 Restaurante:</strong> {reserva?.restaurants?.name}
+          </div>
+          <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '0.4rem' }}>
+            <strong>📅 Fecha:</strong> {reserva?.reservation_date}
+          </div>
+          <div style={{ fontSize: '0.85rem', color: '#475569' }}>
+            <strong>⏰ Hora:</strong> {reserva?.reservation_time}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: '#fffbeb', padding: '1.2rem', borderRadius: '10px', marginBottom: '1rem', border: '1px solid #fde68a' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.7rem' }}>
+            <span style={{ fontSize: '1.2rem' }}>🔔</span>
+            <strong style={{ fontSize: '0.95rem', color: '#78350f' }}>Activá las notificaciones</strong>
+          </div>
+          <p style={{ margin: '0 0 1rem 0', color: '#92400e', fontSize: '0.88rem', lineHeight: '1.6' }}>
+            Te avisamos al instante cuando el anfitrión confirme y puedas elegir tu menú.
+          </p>
+          <PushPermissionButton reservationId={id!} role="guest" />
+        </div>
+
+        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem', marginTop: '1rem' }}>
+          💡 Tip: Podés cerrar esta pestaña. Te avisaremos cuando sea el momento de elegir.
+        </p>
+      </main>
+    );
+  }
+
+  // ============================================
+  // RENDER: COMANDAS ABIERTAS (elegir menú)
+  // ============================================
   return (
     <main style={{ maxWidth: '600px', margin: '3rem auto', padding: '2rem', fontFamily: 'sans-serif', background: '#fff', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '0.5rem' }}>Elección de Menú en Grupo</h2>
-      <p style={{ textAlign: 'center', color: '#666', marginBottom: '2rem' }}>
-        Restaurante: <strong>{reserva?.restaurants?.name}</strong>
-      </p>
+      <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+        <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🎉</div>
+        <h2 style={{ margin: '0 0 0.5rem 0' }}>¡Ya podés elegir tu menú!</h2>
+        <p style={{ color: '#666', margin: 0 }}>
+          Restaurante: <strong>{reserva?.restaurants?.name}</strong>
+        </p>
+      </div>
 
       {!isNombreGuardado ? (
         <div style={{ background: '#f9f9f9', padding: '1.5rem', borderRadius: '8px', textAlign: 'center', border: '1px solid #eee' }}>
           <h3 style={{ marginBottom: '0.5rem' }}>¿Cómo te llamas?</h3>
-          <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>Ingresa tu nombre para guardar tus elecciones y ver qué pide tu mesa.</p>
+          <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '1rem' }}>
+            Ingresá tu nombre para guardar tus elecciones y ver qué pide tu mesa.
+          </p>
           <input
             type="text"
             placeholder="Tu nombre (ej. Carlos)"
@@ -221,7 +303,12 @@ function MenuGrupoContenido() {
         <div>
           <div style={{ background: '#e8f5e9', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Participando como: <strong>{nombreComensal}</strong></span>
-            <button onClick={() => setIsNombreGuardado(false)} style={{ background: 'none', border: 'none', color: '#2e7d32', cursor: 'pointer', textDecoration: 'underline', fontWeight: 'bold', fontSize: '0.9rem' }}>Cambiar nombre</button>
+            <button
+              onClick={() => setIsNombreGuardado(false)}
+              style={{ background: 'none', border: 'none', color: '#2e7d32', cursor: 'pointer', textDecoration: 'underline', fontWeight: 'bold', fontSize: '0.9rem' }}
+            >
+              Cambiar nombre
+            </button>
           </div>
 
           <form onSubmit={handleAgregarPlato} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
@@ -259,9 +346,21 @@ function MenuGrupoContenido() {
           {preorders.map((order) => {
             const esMio = order.guest_name?.toLowerCase() === nombreComensal.toLowerCase();
             return (
-              <div key={order.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: esMio ? '#f0f7ff' : '#f5f5f5', borderRadius: '6px', borderLeft: `4px solid ${esMio ? '#1976d2' : '#999'}` }}>
+              <div
+                key={order.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '0.75rem 1rem',
+                  background: esMio ? '#f0f7ff' : '#f5f5f5',
+                  borderRadius: '6px',
+                  borderLeft: `4px solid ${esMio ? '#1976d2' : '#999'}`,
+                }}
+              >
                 <div>
-                  <strong>{order.guest_name}</strong> {esMio && '(Tú)'} eligió: <span style={{ color: '#333' }}>{order.item_name || order.menu_items?.name || 'Platillo'}</span>
+                  <strong>{order.guest_name}</strong> {esMio && '(Tú)'} eligió:{' '}
+                  <span style={{ color: '#333' }}>{order.item_name || 'Platillo'}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   {esMio && (
