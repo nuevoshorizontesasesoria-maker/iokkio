@@ -45,3 +45,7 @@ firebase-service-account.json
 
 # Env files
 .env*.local
+
+# Archivos temporales con secretos
+json-one-line.txt
+build-output.txt

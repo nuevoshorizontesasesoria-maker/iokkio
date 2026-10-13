@@ -42,7 +42,7 @@ export default function ReservarForm() {
     }
 
     // Redirige a la pantalla de éxito usando el ID de la reserva
-    router.push(`/reserva/${data.id}`)
+    router.push(`/reserva-confirmada/${data.id}`)
   }
 
   return (
