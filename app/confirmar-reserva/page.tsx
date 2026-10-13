@@ -341,10 +341,16 @@ function ConfirmacionContenido({ searchParamsProps }: { searchParamsProps?: { id
   );
 }
 
-export default function ConfirmarReservaPage({ searchParams }: { searchParams?: { id?: string; token?: string } }) {
+// ✅ FIX: Next.js 16 requiere searchParams como Promise
+export default async function ConfirmarReservaPage({ 
+  searchParams 
+}: { 
+  searchParams: Promise<{ id?: string; token?: string }> 
+}) {
+  const params = await searchParams;
   return (
     <Suspense fallback={<div style={{ textAlign: 'center', marginTop: '6rem', fontFamily: 'sans-serif' }}>Cargando...</div>}>
-      <ConfirmacionContenido searchParamsProps={searchParams} />
+      <ConfirmacionContenido searchParamsProps={params} />
     </Suspense>
   );
 }
