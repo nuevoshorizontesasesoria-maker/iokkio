@@ -63,3 +63,11 @@ key.text
 eyJhbGci*.txt
 *.key
 *.pem
+
+# Archivos con claves (NUNCA subir)
+key.txt
+key.text
+eyJhbGci*.txt
+eyJhbGci*.text
+*.key
+*.pem
