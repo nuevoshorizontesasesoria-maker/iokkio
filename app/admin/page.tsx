@@ -9,10 +9,10 @@ export default function AdminPage() {
       descripcion: 'Gestionar cadenas de restaurantes',
     },
     {
-      href: '/admin/nuevo-restaurante',
+      href: '/admin/restaurantes',
       emoji: '🏪',
-      titulo: 'Nuevo Restaurante',
-      descripcion: 'Dar de alta un local',
+      titulo: 'Restaurantes',
+      descripcion: 'Gestionar locales por cliente',
     },
     {
       href: '/admin/usuarios',
