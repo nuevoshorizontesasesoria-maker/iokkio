@@ -49,3 +49,17 @@ firebase-service-account.json
 # Archivos temporales con secretos
 json-one-line.txt
 build-output.txt
+
+# Archivos con claves (NUNCA subir)
+key.txt
+key.text
+eyJhbGci*.txt
+*.key
+*.pem
+
+# Archivos con claves (NUNCA subir)
+key.txt
+key.text
+eyJhbGci*.txt
+*.key
+*.pem
