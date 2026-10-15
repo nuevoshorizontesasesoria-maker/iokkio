@@ -1,0 +1,1 @@
+﻿Get-Clipboard | Out-File -FilePath "key.txt" -Encoding UTF8 -NoNewline
