@@ -39,6 +39,7 @@ export default function TableroPage() {
   const [filtroEstado, setFiltroEstado] = useState<string>('TODOS');
   const [reservas, setReservas] = useState<ReservaDetalle[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   // Modales
   const [modalReservaAbierto, setModalReservaAbierto] = useState<boolean>(false);
@@ -68,7 +69,21 @@ export default function TableroPage() {
     obtenerSucursales();
   }, []);
 
-  // 2. Cargar Reservas y Comandas (2 queries separadas para evitar error 400)
+  // 2. Obtener el rol del usuario logueado
+  useEffect(() => {
+    async function obtenerRol() {
+      try {
+        const response = await fetch('/api/mi-rol');
+        const data = await response.json();
+        setUserRole(data.role);
+      } catch (err) {
+        console.error('Error obteniendo rol:', err);
+      }
+    }
+    obtenerRol();
+  }, []);
+
+  // 3. Cargar Reservas y Comandas (2 queries separadas para evitar error 400)
   const cargarDatos = useCallback(async () => {
     setCargando(true);
     try {
@@ -188,6 +203,28 @@ export default function TableroPage() {
           </div>
 
           <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
+            {userRole === 'gerente' && (
+              <a
+                href="/mi-equipo"
+                style={{
+                  backgroundColor: '#7c3aed',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '0.65rem 1.1rem',
+                  borderRadius: '8px',
+                  fontWeight: '700',
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  boxShadow: '0 4px 10px rgba(124, 58, 237, 0.3)',
+                }}
+              >
+                👥 Mi Equipo
+              </a>
+            )}
             <button
               onClick={() => setModalReservaAbierto(true)}
               style={{ backgroundColor: '#2563eb', color: '#fff', border: 'none', padding: '0.65rem 1.1rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.88rem', cursor: 'pointer', boxShadow: '0 4px 10px rgba(37, 99, 235, 0.3)' }}

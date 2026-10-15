@@ -11,18 +11,11 @@ export interface CurrentUser {
 }
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
-  console.log('[AUTH] === Iniciando getCurrentUser ===');
-
   try {
     const supabase = await createSupabaseServerClient();
 
-    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-    console.log('[AUTH] authUser:', authUser?.id || 'NULL', 'error:', authError?.message || 'ninguno');
-
-    if (!authUser) {
-      console.log('[AUTH] No hay authUser → devolviendo null');
-      return null;
-    }
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) return null;
 
     const supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -36,18 +29,11 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
       .eq('active', true)
       .single();
 
-    console.log('[AUTH] userData:', userData);
-    console.log('[AUTH] error:', error);
+    if (error || !userData) return null;
 
-    if (error || !userData) {
-      console.log('[AUTH] No se encontró userData → devolviendo null');
-      return null;
-    }
-
-    console.log('[AUTH] ¡Éxito! Devolviendo user:', userData.email, userData.role);
     return userData as CurrentUser;
   } catch (err: any) {
-    console.log('[AUTH] EXCEPCIÓN:', err.message);
+    console.error('[AUTH] Error:', err.message);
     return null;
   }
 }
@@ -59,4 +45,3 @@ export async function requireUser(): Promise<CurrentUser> {
   }
   return user;
 }
-|
